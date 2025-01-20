@@ -1,0 +1,14 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "sciepedia",
+  "outputfilename": "sciepedia",
+  "frontend:install": "npm install",
+  "frontend:build": "npm run build",
+  "frontend:dev:watcher": "npm run dev",
+  "frontend:dev:serverUrl": "auto",
+  "author": {
+    "name": "DKormann",
+    "email": "dominikormann@outlook.com"
+  },
+  "icon": "assets/appicon.png"
+}
