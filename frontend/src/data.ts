@@ -11,7 +11,6 @@ export type Child = {
   path:Path,
   Content:string,
   children:Child[]
-  linkstate: Path[][]
 }
 
 type ND = Root|Child
@@ -19,7 +18,7 @@ type Step = (root:Root)=>Root|void
 const chain = (root:Root, ...steps:Step[]):Root => steps.reduce((state, step) => step(state) || state, root) 
 
 const getChild = (parent:Root|Child, title:string):Child =>
-  parent.children.find(c=>c.path[c.path.length-1] === title) || {Content:'', path: [...parent.path, title], children: [], linkstate: []}
+  parent.children.find(c=>c.path[c.path.length-1] === title) || {Content:'', path: [...parent.path, title], children: []}
 
 const getNode = (root:Root, path:Path):Child|Root =>{
   if (path.length === 0){
@@ -32,8 +31,8 @@ export const root = (...children:Child[]):Root => {
   return {path:[], children: children || []}
 }
 
-export const child = (path:Path, Content:string, linkstate:Path[][] = [],...children:Child[]):Child => {
-  return {path, Content, children, linkstate}
+export const child = (path:Path, Content:string,...children:Child[]):Child => {
+  return {path, Content, children}
 }
 
 const displayNode = (node:Root|Child):string => {
@@ -42,7 +41,7 @@ const displayNode = (node:Root|Child):string => {
     return `root(${childrep})`
   }else{
     const n = node as Child
-    return `child(${JSON.stringify(n.path)}, ${JSON.stringify(n.Content)}, ${JSON.stringify(n.linkstate)}, ${childrep})`
+    return `child(${JSON.stringify(n.path)}, ${JSON.stringify(n.Content)}, ${childrep})`
   }
 }
 
@@ -82,7 +81,7 @@ const assertEq = (a:ND, b:ND, message:string) => assert(JSON.stringify(a) === JS
 {
   console.log("testing");
   chain(
-    root(child(['a'], 'a',[],  child(['a', 'b'], 'b', [], child(['a', 'b', 'c'], 'c')))),
+    root(child(['a'], 'a',  child(['a', 'b'], 'b', child(['a', 'b', 'c'], 'c')))),
 
     r=>assertEq(r, eval(displayNode(r)) as Root, 'display'),
     r=>assertEq(getNode(r, ['a', 'b', 'c']), child(['a', 'b', 'c'], 'c'), 'getNode',),
