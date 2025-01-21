@@ -21,7 +21,6 @@ body{
     }
 }
 
-
 .highlight{
   background-color: var(--highlight);
 }
@@ -30,4 +29,9 @@ body{
   color: var(--active);
   cursor: pointer;
 }
+
+*:focus{
+	outline: none;
+}
+
 

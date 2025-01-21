@@ -17,6 +17,7 @@ type LineView = {
   content:string
   id:number
   open: PageView[]
+  editable:boolean
 }
 
 type ID = Path|number
@@ -29,8 +30,10 @@ type View = {
 type State = {
   root:Root
   pageState:PageView
+  editable:ID[]
 }
 
+const setAttr=<T>(key:string, value:any)=>(item:T):T=>({...item, [key]:value})
 
 const islink = (s:string) => s.startsWith('#')
 const linkpath = (s:string) => s.slice(1).split('.')
@@ -43,7 +46,8 @@ const createView=(r:Root, path:Path):PageView => {
     open: lines.map((l,i)=>({
       id:i,
       content:l,
-      open: []
+      open: [],
+      editable: false
     }))
   }
 }
@@ -60,14 +64,17 @@ const pageHTML = (page:PageView, stack?:ID[]):HTMLElement =>{
 }
 
 const lineHTML = (line:LineView, stack:ID[]):HTMLElement =>{
+  if (line.editable){
+    console.log('editable', stack);
+  }
   const elid = JSON.stringify(stack)
   return htmlElement('p','' , ['id', elid],['children',
     [
     htmlElement('span', '', ['children',
       line.content.split(' ')
-      .map(w=>islink(w)?htmlElement('span', w, ['class', 'link'], ['id',elid]):htmlElement('span', w))
+      .map(w=>htmlElement('span', w, ['class', islink(w)?'link':'line'], ['id',elid]))
       .reduce((l:HTMLElement[],w)=>[...l, w, htmlElement('span', ' ')],[])
-    ]),
+    ],['contentEditable' , line.editable.toString()]),
     
     ...line.open.map(p=>pageHTML(p, [...stack, p.id]))
   ]])
@@ -81,15 +88,21 @@ const updateView=<T extends View>(s:State, stack:ID[], fn:(v:T)=>T) => setView(s
 const openLink= (s:State, stack:ID[]) => updateView(s, stack.slice(0,-1), (ln)=>({
     ... ln, open: ln.open.concat(createView(s.root, stack[stack.length-1] as Path)) }))
 
-// const closeLink= (s:State, stack:ID[]) => updateView(s, stack.slice(0,-1), ln=>({
-//     ... ln, open: ln.open.filter(v=>!comp(v.id, stack[stack.length-1])) }))
-
-const toggleLink = (s:State, stack:ID[]) => updateView(s, stack.slice(0,-1), ln=>({
+const toggleLink = (s:State, stack:ID[], path:Path) => updateView(s, stack, ln=>({
   ... ln,
-  open: ln.open.find(v=>comp(v.id, stack[stack.length-1]))?
-  ln.open.filter(v=>!comp(v.id, stack[stack.length-1])):
-  ln.open.concat(createView(s.root, stack[stack.length-1] as Path)) }))
+  open: ln.open.find(v=>comp(v.id, path))?
+  ln.open.filter(v=>!comp(v.id, path)):
+  ln.open.concat(createView(s.root, path)) }))
   
+const setEditble = (s:State, stack:ID[]) => {
+
+    return chain(s,
+    s=>s.editable.length?updateView(s, s.editable, setAttr<View>('editable', false)):s,
+    s=>{if (s.editable.length)assertEq((getView(s, s.editable)as LineView).editable, false)},
+    s=>updateView(s, stack, setAttr<View>('editable', true)),
+    setAttr<State>('editable', stack)
+  )
+}
 
 const _setView=<T extends View>(r:Root, parent:T, stack:ID[], view:View):T => {
   if (stack.length === 0) return view as T
@@ -98,18 +111,13 @@ const _setView=<T extends View>(r:Root, parent:T, stack:ID[], view:View):T => {
     console.error("not found", stack[0]);
     return parent
   }
-  const res = {
+  return {
     ...parent,
     open: parent.open.filter(v=>!comp(v.id, stack[0])).concat(_setView(r, ch, stack.slice(1), view))
   }
-  console.log("res:",res);
-  return res
-  
 }
 
-const setView = (s:State, stack:ID[], view:View):State => {
-  console.log('setView', stack);
-  
+const setView = (s:State, stack:ID[], view:View):State => {  
   assertEq(stack[0], s.pageState.id)
   return {
     ...s,
@@ -120,24 +128,25 @@ const chain=(s:State, ...fn:((s:State)=>State|void)[])=>fn.reduce((s, f)=>f(s)??
 
 const r = root(child(['me'], 'hello #link'), child(['link'], 'world #link'))
 
+console.log(JSON.stringify(r));
+
 const s = {
   root:r,
-  pageState:createView(r, ['me'])
-}
-
-{
-  console.log('test view');
-  chain(s,
-  )
+  pageState:createView(r, ['me']),
+  editable:[]
 }
 
 export const view = (putHTML:(el:HTMLElement)=>void) => {
   const show = (s:State)=>{
     const pg = pageHTML(s.pageState, [s.pageState.id]);
     pg.addEventListener('click', e=>{
-      if (e.target instanceof HTMLElement && e.target.classList.contains('link')){
-        const path = [...JSON.parse(e.target.id), linkpath(e.target.textContent!)] as ID[]
-        show(toggleLink(s, path))
+      if (e.target instanceof HTMLElement){
+        const stack = [...JSON.parse(e.target.id)] as ID[]
+        if (e.target.classList.contains('link')){
+          show(toggleLink(s, stack, linkpath(e.target.textContent!)))
+        }else if (e.target.classList.contains('line')){
+          if (!comp(s.editable, stack)) show(setEditble(s, stack))
+        }
       }
     })
     putHTML(pg)
@@ -145,16 +154,15 @@ export const view = (putHTML:(el:HTMLElement)=>void) => {
 
   {
     chain(s,
-      s=>console.log('test view'),
-      s=> assertEq(setView(s, [['me']], getView(s, [['me']])!), s),
       s=>{
+        console.log('test view')
+        assertEq(setView(s, [['me']], getView(s, [['me']])!), s)
         const ln = getView(s, [['me'],0]) as LineView
         const res = setView(s, [['me'],0], {...ln, content:"hiii"} as LineView)!
         assertEq(getView(res, [['me'],0]), {...ln, content:"hiii"})
         const op = openLink(s, [['me'],0, ['link']])
         assertEq((getView(op, [['me'],0]) as LineView).open.length, 1)
         assertEq((getView(op, [['me'],0, ['link']]) as PageView), createView(s.root, ['link']))
-        
       },
       s=>{
         return openLink(s, [['me'],0, ['link']])
