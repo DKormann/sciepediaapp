@@ -4,8 +4,6 @@ import {Root as Root, getData, setData, Child, Path, root, child} from './data'
 import { htmlElement } from './_html'
 
 
-
-
 const comp = (a:any, p:any) => JSON.stringify(a) === JSON.stringify(p)
 
 const assertEq = (a:any, b:any) => {comp(a,b) || console.error(a,b)}
@@ -34,14 +32,12 @@ type State = {
 }
 
 
-// const islink = (s:string):boolean => s.startsWith('#')
-// const linktopath = (s:string):Path => s.slice(1).split('.')
+const islink = (s:string) => s.startsWith('#')
+const linkpath = (s:string) => s.slice(1).split('.')
 
 const createView=(r:Root, path:Path):PageView => {
   const node = getData(r, path)
   const lines = node.Content.split('\n')
-  console.log("create",node.path, node.Content);
-  console.log(lines);
   return {
     id:path,
     open: lines.map((l,i)=>({
@@ -52,47 +48,51 @@ const createView=(r:Root, path:Path):PageView => {
   }
 }
 
-const showView = (page:PageView, stack?:ID[]):HTMLElement =>{
+const pageHTML = (page:PageView, stack?:ID[]):HTMLElement =>{
 
   if (stack === undefined) stack = [page.id]
   const elid = JSON.stringify(stack)
-  console.log('view', page.id, page.open);
-  
+
   return htmlElement('div', '', ['id', elid],['children',[
     htmlElement('h2', page.id.join('.'), ['id', elid]),
-    htmlElement('div', '', ['children', page.open.map((l,i)=>showLine(l, [...(stack as ID[]), i]))]),
+    htmlElement('div', '', ['children', page.open.map((l,i)=>lineHTML(l, [...(stack as ID[]), i]))]),
   ]])
 }
 
-const showLine = (line:LineView, stack:ID[]):HTMLElement =>{
+const lineHTML = (line:LineView, stack:ID[]):HTMLElement =>{
   const elid = JSON.stringify(stack)
   return htmlElement('p','' , ['id', elid],['children',
     [
-    htmlElement('span', line.content),
-    ...line.open.map(p=>showView(p, [...stack, p.id]))
+    htmlElement('span', '', ['children',
+      line.content.split(' ')
+      .map(w=>islink(w)?htmlElement('span', w, ['class', 'link'], ['id',elid]):htmlElement('span', w))
+      .reduce((l:HTMLElement[],w)=>[...l, w, htmlElement('span', ' ')],[])
+    ]),
+    
+    ...line.open.map(p=>pageHTML(p, [...stack, p.id]))
   ]])
 }
 
 const getChild = (v:View|undefined, id:ID): View|undefined=>v?.open.find(v=>comp(v.id, id))
 const getView = (s:State, stack:ID[])=> stack.reduce(getChild,{id:0, open: [s.pageState]} as View)
 
+const updateView=<T extends View>(s:State, stack:ID[], fn:(v:T)=>T) => setView(s, stack, fn(getView(s, stack) as T))
 
-const openLink = (r:Root, line:LineView, path:Path):LineView =>{
-  return {
-    ...line,
-    open: line.open.concat([createView(r, path)])
-  }
-}
-const closeLink = (_:Root, line:LineView, path:Path):LineView =>{
-  return {
-    ...line,
-    open: line.open.filter(v=>!comp(v.id, path))
-  }
-}
+const openLink= (s:State, stack:ID[]) => updateView(s, stack.slice(0,-1), (ln)=>({
+    ... ln, open: ln.open.concat(createView(s.root, stack[stack.length-1] as Path)) }))
+
+// const closeLink= (s:State, stack:ID[]) => updateView(s, stack.slice(0,-1), ln=>({
+//     ... ln, open: ln.open.filter(v=>!comp(v.id, stack[stack.length-1])) }))
+
+const toggleLink = (s:State, stack:ID[]) => updateView(s, stack.slice(0,-1), ln=>({
+  ... ln,
+  open: ln.open.find(v=>comp(v.id, stack[stack.length-1]))?
+  ln.open.filter(v=>!comp(v.id, stack[stack.length-1])):
+  ln.open.concat(createView(s.root, stack[stack.length-1] as Path)) }))
+  
 
 const _setView=<T extends View>(r:Root, parent:T, stack:ID[], view:View):T => {
   if (stack.length === 0) return view as T
-  console.log('set', stack[0]);
   const ch = getChild(parent, stack[0])
   if (ch === undefined) {
     console.error("not found", stack[0]);
@@ -118,7 +118,7 @@ const setView = (s:State, stack:ID[], view:View):State => {
 
 const chain=(s:State, ...fn:((s:State)=>State|void)[])=>fn.reduce((s, f)=>f(s)??s,s )
 
-const r = root(child(['me'], 'hello #link'), child(['link'], 'world'))
+const r = root(child(['me'], 'hello #link'), child(['link'], 'world #link'))
 
 const s = {
   root:r,
@@ -131,25 +131,35 @@ const s = {
   )
 }
 
-
 export const view = (putHTML:(el:HTMLElement)=>void) => {
-  const show = (s:State)=>putHTML(showView(s.pageState, [s.pageState.id]))
+  const show = (s:State)=>{
+    const pg = pageHTML(s.pageState, [s.pageState.id]);
+    pg.addEventListener('click', e=>{
+      if (e.target instanceof HTMLElement && e.target.classList.contains('link')){
+        const path = [...JSON.parse(e.target.id), linkpath(e.target.textContent!)] as ID[]
+        show(toggleLink(s, path))
+      }
+    })
+    putHTML(pg)
+  }
 
-  document.body.addEventListener('click', e=>{
-    console.log(e.target);
-  })
   {
-    console.log('test view');
     chain(s,
-      s=>console.log(getView(s,[['me']])),
+      s=>console.log('test view'),
       s=> assertEq(setView(s, [['me']], getView(s, [['me']])!), s),
       s=>{
-        const ln = getView(s, [['me'],0])!
+        const ln = getView(s, [['me'],0]) as LineView
         const res = setView(s, [['me'],0], {...ln, content:"hiii"} as LineView)!
         assertEq(getView(res, [['me'],0]), {...ln, content:"hiii"})
+        const op = openLink(s, [['me'],0, ['link']])
+        assertEq((getView(op, [['me'],0]) as LineView).open.length, 1)
+        assertEq((getView(op, [['me'],0, ['link']]) as PageView), createView(s.root, ['link']))
+        
+      },
+      s=>{
+        return openLink(s, [['me'],0, ['link']])
       },
       show,
     )
   }
-  // chain(s,show)
 }
