@@ -94,4 +94,3 @@ const assertEq = (a:ND, b:ND, message:string) => assert(JSON.stringify(a) === JS
     r=>assert((getNode(r, ['a', 'b']) as Child ).Content === 'b', 'get Content'),
   )
 }
-

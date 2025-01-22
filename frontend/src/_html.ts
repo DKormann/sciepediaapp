@@ -1,4 +1,4 @@
-type htmlKey = 'innerText'|'onclick'|'children'|'class'|'id'|'contentEditable'
+export type htmlKey = 'innerText'|'onclick'|'children'|'class'|'id'|'contentEditable'
 
 export const htmlElement = (tag:string, text:string, ...args:[htmlKey, any][]):HTMLElement =>{
   const _element = document.createElement(tag)
