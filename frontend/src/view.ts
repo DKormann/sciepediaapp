@@ -31,7 +31,7 @@ type View = LineView|PageView
 type State = {
   pageState:PageView
   root:Root
-  editable:ID[]
+  // editable:ID[]
 }
 
 const islink = (s:string) => s.startsWith('#')
@@ -138,8 +138,6 @@ const toggleLink = (stack:ID[], path:Path) :Update=>s=> updateView<LineView>(sta
   
 const setEditble = (stack:ID[])=>
     chain(
-    s=>s.editable.length? updateView(s.editable, setAttr<View>('editable', false))(s):s,
-    s=>s.editable.length? assertEq((getView(s, s.editable)as LineView).editable, false, 'didnt reset editable' ):s,
     updateView(stack, setAttr<View>('editable', true)),
     setAttr<State>('editable', stack),
     s=>log('setEditable', s),
@@ -192,9 +190,12 @@ export const view = (putHTML:(el:HTMLElement)=>void) => {
           if (!stack) return
           if ((e.target as HTMLElement).classList.contains('line')){
 
-            const newtext = (getView(s, stack) as LineView).element!.textContent!
+            const newtext = (getView(s, stack.slice(0,-1)) as PageView).open.map(l=>l.element!.textContent).join('\n')
+            log("newtext",newtext)
+
             chain(
-              updateView<LineView>(stack, setAttr<LineView>('content', newtext)),
+              setAttr<State>('root', setData(s.root, {...getData(s.root, stack[stack.length-2] as Path), Content:newtext})),
+              updateView<LineView>(stack, setAttr<LineView>('content', newtext.split('\n')[stack[stack.length-1] as number])),
               show
             )(s)
           }
