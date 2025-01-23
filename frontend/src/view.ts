@@ -31,6 +31,7 @@ type View = LineView|PageView
 type State = {
   pageState:PageView
   root:Root
+  selection?:{node:ID[], offset:number}
 }
 
 const islink = (s:string) => s.startsWith('#')
@@ -113,7 +114,6 @@ const render = (v:View)=>{
   const res = deepWalk(v,(v:View):View=>({...v, element:v.type === 'line'?lineHTML(v):pageHTML(v)}))
   log('renderd', res.element)
   return res
-
 }
 
 const getChild = (v:View|undefined, id:ID): View|undefined=>v?.open.find(v=>comp(getID(v), id))
@@ -154,9 +154,19 @@ const setView = (stack:ID[], view:View):Update=>
 const chain = (...up:(Update|((s:State)=>void))[]):Update => s=>up.reduce((s, f)=>f(s)||s, s)
 
 
+type Tree<T> = {value:T, children?:Tree<T>[]}
+const treeMap = <T,U> (f:(t:T)=>U, t:Tree<T>):Tree<U> =>
+  ({value:f(t.value), children:t.children?.map(c=>treeMap(f,c))})
+const treeFilter = <T> (f:(t:T)=>boolean, t:Tree<T>):Tree<T> =>
+  ({value:t.value, children:t.children?.map(c=>treeFilter(f,c))?.filter(c=>f(c.value))})
+const flatten = <T> (t:Tree<T>):T[] =>
+  t.children==undefined?[t.value]:[...t.children.map(flatten)].flat()
+
+
+
 export const view = (putHTML:(el:HTMLElement)=>void) => {
   
-  const r = root(child(['me'], 'hello #link\nnl'), child(['link'], 'world #aka\nalso #akb'), child(['aka'], 'aka'))
+  const r = root(child(['me'], 'hello #link\nnl'), child(['link'], 'world #aka\nalso #akb #link'), child(['aka'], 'aka'))
 
   const s = {
     root:r,
@@ -167,6 +177,7 @@ export const view = (putHTML:(el:HTMLElement)=>void) => {
   const show = chain(
 
     s=>setAttr<State>('pageState', render(s.pageState))(s),
+    
     s=>{
       const parseEventStack = (e:Event):ID[]|undefined=>
         (e.target instanceof HTMLElement && e.target.classList.contains('stack'))?
@@ -190,9 +201,20 @@ export const view = (putHTML:(el:HTMLElement)=>void) => {
           if ((e.target as HTMLElement).classList.contains('line')){
 
             const newtext = (getView(s, stack.slice(0,-1)) as PageView).open.map(l=>l.element!.textContent).join('\n')
-            log("newtext",newtext)
+            const line = getView(s, stack) as LineView
+
+            const flatten = (node:ChildNode):Text[]=>{
+              if (node instanceof Text) return [node]
+              return Array.from(node.childNodes).map(flatten).flat()
+            }
+
+            const fl = flatten(line.element?.childNodes[0]!)
+            const sel = window.getSelection()!
+            const nodeidx = fl.findIndex(t=>t==sel.anchorNode)
+            const cursorn = fl.slice(0,nodeidx).map(t=>t.textContent).join('').length + sel.anchorOffset
 
             chain(
+              setAttr<State>('selection', {node:stack, offset: cursorn}),
               setAttr<State>('root', setData(s.root, {...getData(s.root, stack[stack.length-2] as Path), Content:newtext})),
               updateView<LineView>(stack, setAttr<LineView>('content', newtext.split('\n')[stack[stack.length-1] as number])),
               show
@@ -200,12 +222,40 @@ export const view = (putHTML:(el:HTMLElement)=>void) => {
           }
         },
       }],['children', [s.pageState.element!]], ['id', 'eventListener'])
-
       putHTML(listnr)
-      log("listnr",listnr)
       return s
-    }
+    },
 
+    s=>{
+      if(s.selection==undefined)return
+      const v = getView(s, s.selection.node) as LineView
+      if (v === undefined) return
+      const fl = (node:ChildNode):Text[]=>{
+        if (node instanceof Text) return [node]
+        return Array.from(node.childNodes).map(fl).flat()
+      }
+      const fls = fl(v.element!.childNodes[0]!)
+      // const nodeidx = s.selection.offset
+      const [prevcount,ndx] = fls.reduce(([c, res], t, i)=>{
+        if (res>=0) return [c,res]
+        const cc = c+t.textContent!.length
+        if (cc>=s.selection!.offset) return [c, i]
+        return [cc, -1]
+      }, [0,-1] )
+
+      const anchor = fls[ndx]
+      const anchorOffset = s.selection.offset - prevcount
+      console.log("anchor",anchor, anchorOffset)
+      assertEq(document.contains(anchor), true, 'show')
+
+      const range = document.createRange()
+      range.setStart(anchor, anchorOffset)
+      range.setEnd(anchor, anchorOffset)
+
+      const sel = window.getSelection()!
+      sel.removeAllRanges()
+      sel.addRange(range)
+    },
   )
 
   {
