@@ -31,7 +31,6 @@ type View = LineView|PageView
 type State = {
   pageState:PageView
   root:Root
-  // editable:ID[]
 }
 
 const islink = (s:string) => s.startsWith('#')
