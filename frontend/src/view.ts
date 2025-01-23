@@ -6,7 +6,7 @@ import { htmlElement, htmlKey } from './_html'
 
 const comp = (a:any, p:any) => JSON.stringify(a) === JSON.stringify(p)
 
-const assertEq = (a:any, b:any,msg:string) => {comp(a,b) || console.error(a,b, msg)}
+const assertEq = (a:any, b:any,msg:string) => {comp(a,b) || console.error([a,b], msg)}
 
 type PageView = {
   type:'page'
@@ -23,7 +23,6 @@ type LineView = {
   content:string
   editable:boolean
 }
-
 
 type ID = Path|number
 
@@ -44,11 +43,12 @@ const stack=(...x:(string| number)[])=>
 assertEq(stack('#me'), [['me']], 'stack')
 assertEq(stack('#me',0,'#link.other'), [['me'], 0, ['link','other']], 'stack')
 
-const log=<T>(t:T, ...x:any[])=>
-  (t instanceof HTMLElement? console.log(t,...x) : console.log([t,...x].map(x=>stringify(x)).join(' ')), t)
+const log=<T>(tag:string, t:T, ...x:any[])=>
+  (t instanceof HTMLElement? console.log(tag,t,...x) : console.log(tag,":",[t,...x].map(x=>stringify(x)).join(' ')), t)
   
 
 const stringify = (x:any):string =>
+  x == undefined? 'undefined':
   x instanceof Array?
   `[${
     x.length==0?'':
@@ -85,35 +85,36 @@ const last = <T>(arr:T[]):T => arr[arr.length-1]
 
 const getID = (v:View)=>last(v.stack) 
 
-const pageHTML = (page:PageView):HTMLElement=>{
-  log("html",page)
-  const elid = JSON.stringify(page.stack)
-  return log(htmlElement('div', '', ['id', elid],['class', 'page'],['children',[
-    htmlElement('h2', (getID(page) as Path).join('.'), ['id', elid]),
-    htmlElement('div', '', ['children', page.open.map(l=>l.element)])
-  ]]), 'pageHTML')
-}
+const pageHTML = (page:PageView):HTMLElement=>
+  element('div', page.stack, '', 'page', {
+    children:[
+      element('h2', page.stack, (getID(page) as Path).join('.'), 'head'),
+      element('div', page.stack, '', 'body', {children:page.open.map(l=>l.element)})
+    ],
+  })
 
 const element = (tag:string, stack:ID[], w:string, cls:string, attr:Partial<Record<htmlKey, any>>={})=>
   htmlElement(tag, w, ['class', 'stack '+cls], ['id', JSON.stringify(stack)], ...Object.entries(attr) as [htmlKey, any][])
 
 const lineHTML = (line:LineView):HTMLElement =>
-  log(element('p',line.stack, '', 'line', {
+  element('p',line.stack, '', 'line', {
     children: [
       element('span',line.stack, '', 'line span', {children:
         line.content.split(' ')
         .map(w=>element('span',line.stack, w, islink(w)?'link':'line'))
-        .reduce((l:(HTMLElement)[],w,i)=>[...l,element('span',line.stack, i?' ':'', 'line'), w], [])
-        .concat(line.open.map(p=>p.element!))
+        .reduce((l:(HTMLElement)[],w,i)=>[...l,element('span',line.stack, i?' ':'', 'line'), w], []),
+        contentEditable:line.editable
       }),
+      ...line.open.map(p=>p.element!)
     ]
-  }),"lineHTML")
+  })
 
-const deepWalk = (v:View, fn:(v:View)=>View):View =>log('dww')&&fn({...v, open:v.open.map(p=>deepWalk(p, fn)) } as View)
+const deepWalk = (v:View, fn:(v:View)=>View):View =>fn({...v, open:v.open.map(p=>deepWalk(p, fn)) } as View)
 const render = (v:View)=>{
-  const res = deepWalk(v,(v:View):View=>({...v, element:v.type === 'line'?lineHTML(v):pageHTML(v)})) 
-  log(res.element)
+  const res = deepWalk(v,(v:View):View=>({...v, element:v.type === 'line'?lineHTML(v):pageHTML(v)}))
+  log('renderd', res.element)
   return res
+
 }
 
 const getChild = (v:View|undefined, id:ID): View|undefined=>v?.open.find(v=>comp(getID(v), id))
@@ -125,8 +126,8 @@ const getView = (s:State, stack:ID[])=> {
 const updateView=<T extends View>(stack:ID[], fn:(v:T)=>T):Update => s=>setView(stack, fn(getView(s, stack) as T))(s)
 
 const openLink= (stack:ID[]):Update=>s =>updateView<LineView>(stack.slice(0,-1), (ln:LineView)=>({
-  
-  ... ln, open: ln.open.concat(createView(s.root, log(stack,'open stack'))) }))(s)
+  ... ln, open: ln.open.concat(createView(s.root, stack)) }))(s)
+
 
 const toggleLink = (stack:ID[], path:Path) :Update=>s=> updateView<LineView>(stack, ln=>({
   ... ln,
@@ -138,9 +139,10 @@ const toggleLink = (stack:ID[], path:Path) :Update=>s=> updateView<LineView>(sta
 const setEditble = (stack:ID[])=>
     chain(
     s=>s.editable.length? updateView(s.editable, setAttr<View>('editable', false))(s):s,
-    s=> s.editable.length? assertEq((getView(s, s.editable)as LineView).editable, false, 'didnt reset editable' ):s,
+    s=>s.editable.length? assertEq((getView(s, s.editable)as LineView).editable, false, 'didnt reset editable' ):s,
     updateView(stack, setAttr<View>('editable', true)),
-    setAttr<State>('editable', stack)
+    setAttr<State>('editable', stack),
+    s=>log('setEditable', s),
   )
 
 const _setView=<T extends View>(r:Root, parent:T, stack:ID[], view:View):T => {
@@ -154,6 +156,7 @@ const setView = (stack:ID[], view:View):Update=>
 
 const chain = (...up:(Update|((s:State)=>void))[]):Update => s=>up.reduce((s, f)=>f(s)||s, s)
 
+
 export const view = (putHTML:(el:HTMLElement)=>void) => {
   
   const r = root(child(['me'], 'hello #link\nnl'), child(['link'], 'world #aka\nalso #akb'), child(['aka'], 'aka'))
@@ -164,43 +167,46 @@ export const view = (putHTML:(el:HTMLElement)=>void) => {
     editable:[]
   }
 
-  const show = (s:State)=>{
-    const ren = render(s.pageState)
-    const pg = ren.element!
+  const show = chain(
 
-    const listen=(type:string, fn:(v:View, e:Event)=>void)=>{
-      pg.addEventListener(type, e=>{
-        if (e.target instanceof HTMLElement && e.target.classList.contains('stack')){ 
-          log(e.target)
-          const v=getView(s, JSON.parse(e.target.id) as ID[])
-          if (v) fn(v, e)
-        }    
-      })
+    s=>setAttr<State>('pageState', render(s.pageState))(s),
+    s=>{
+      const parseEventStack = (e:Event):ID[]|undefined=>
+        (e.target instanceof HTMLElement && e.target.classList.contains('stack'))?
+        JSON.parse(e.target.id) as ID[]
+        :undefined
+
+      const listnr = htmlElement('div', '', ['eventListeners', {
+        click: (e:Event)=>{
+          const stack = parseEventStack(e)
+          if (!stack) return
+          const t = e.target as HTMLElement
+          if (t.classList.contains('link')){
+            show(toggleLink(stack, linkpath((e.target as HTMLElement).textContent!))(s))   
+          }else if (t.classList.contains('line')){
+            if (!(getView(s, stack)as LineView).editable)show(setEditble(stack)(s))
+          }
+        },
+        input: (e:Event)=>{
+          const stack = parseEventStack(e)
+          if (!stack) return
+          if ((e.target as HTMLElement).classList.contains('line')){
+
+            const newtext = (getView(s, stack) as LineView).element!.textContent!
+            chain(
+              updateView<LineView>(stack, setAttr<LineView>('content', newtext)),
+              show
+            )(s)
+          }
+        },
+      }],['children', [s.pageState.element!]], ['id', 'eventListener'])
+
+      putHTML(listnr)
+      log("listnr",listnr)
+      return s
     }
 
-    listen('click', (v,e)=>{
-      const t = e.target as HTMLElement
-      if (t.classList.contains('link')){
-        log('link', t.textContent, t)
-        const stack = [...v.stack,linkpath(t.textContent!)]
-        show(openLink(stack)(s))
-      }else if (t.classList.contains('line')){
-        if (!comp(s.editable, v.stack)) show(setEditble(v.stack)(s))
-      }
-    })
-
-    listen('input', (v,e)=>{
-      console.log('input', v)
-    });
-
-    pg.addEventListener('input', e=>{ 
-      console.log(e);  
-    })
-
-    putHTML(pg)
-    log(ren)
-    return ren
-  }
+  )
 
   {
     chain(
@@ -221,8 +227,12 @@ export const view = (putHTML:(el:HTMLElement)=>void) => {
         assertEq(getView(res, [['me'],0]), {...ln, content:"hiii"}, 'setView')
         const op = openLink([['me'],0, ['link']])(s)
         assertEq((getView(op, [['me'],0]) as LineView).open.length, 1, 'openLink')
+        const el = render(op.pageState).element!
+        assertEq(el.children[0].tagName, 'H2', 'render')
+        assertEq(el.children[1].children[0].children[0].tagName, 'SPAN', 'render')
+        assertEq(el.children[1].children[0].children[0].textContent, "hello #link", 'render')
       },
-      show,
+      show
     )(s)
   }
 }
