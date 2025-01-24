@@ -13,6 +13,7 @@ type PageView = {
   stack:ID[]
   element?:HTMLElement
   open : LineView[]
+  editable:boolean
 }
 
 type LineView = {
@@ -21,7 +22,6 @@ type LineView = {
   element?:HTMLElement
   open: PageView[]
   content:string
-  editable:boolean
 }
 
 type ID = Path|number
@@ -44,7 +44,8 @@ assertEq(stack('#me'), [['me']], 'stack')
 assertEq(stack('#me',0,'#link.other'), [['me'], 0, ['link','other']], 'stack')
 
 const log=<T>(tag:string, t:T, ...x:any[])=>
-  (t instanceof HTMLElement? console.log(tag,t,...x) : console.log(tag,":",[t,...x].map(x=>stringify(x)).join(' ')), t)
+  (t instanceof HTMLElement || t instanceof Event || t instanceof Node
+    ? console.log(tag,t,...x) : console.log(tag,":",[t,...x].map(x=>stringify(x)).join(' ')), t)
   
 
 const stringify = (x:any):string =>
@@ -70,13 +71,13 @@ const createView=(r:Root, stack:ID[]):PageView => {
   return {
     type:'page',
     stack,
+    editable: false,
     open: lines.map((l,i)=>({
       id:i,
       type:'line',
       stack:[...stack, i],
       content:l,
       open: [],
-      editable: false
     }))
   }
 }
@@ -89,7 +90,7 @@ const pageHTML = (page:PageView):HTMLElement=>
   element('div', page.stack, '', 'page', {
     children:[
       element('h2', page.stack, (getID(page) as Path).join('.'), 'head'),
-      element('div', page.stack, '', 'body', {children:page.open.map(l=>l.element)})
+      element('div', page.stack, '', 'body', {children:page.open.map(l=>l.element), contentEditable:page.editable}),
     ],
   })
 
@@ -103,7 +104,6 @@ const lineHTML = (line:LineView):HTMLElement =>
         line.content.split(' ')
         .map(w=>element('span',line.stack, w, islink(w)?'link':'line'))
         .reduce((l:(HTMLElement)[],w,i)=>[...l,element('span',line.stack, i?' ':'', 'line'), w], []),
-        contentEditable:line.editable
       }),
       ...line.open.map(p=>p.element!)
     ]
@@ -112,7 +112,6 @@ const lineHTML = (line:LineView):HTMLElement =>
 const deepWalk = (v:View, fn:(v:View)=>View):View =>fn({...v, open:v.open.map(p=>deepWalk(p, fn)) } as View)
 const render = (v:View)=>{
   const res = deepWalk(v,(v:View):View=>({...v, element:v.type === 'line'?lineHTML(v):pageHTML(v)}))
-  log('renderd', res.element)
   return res
 }
 
@@ -136,7 +135,7 @@ const toggleLink = (stack:ID[], path:Path) :Update=>s=> updateView<LineView>(sta
 }))(s)
   
 const setEditble = (stack:ID[])=>
-    chain(
+  chain(
     updateView(stack, setAttr<View>('editable', true)),
     setAttr<State>('editable', stack),
     s=>log('setEditable', s),
@@ -163,6 +162,13 @@ const flatten = <T> (t:Tree<T>):T[] =>
   t.children==undefined?[t.value]:[...t.children.map(flatten)].flat()
 
 
+function getHTMLText(node:Node):string{
+  if (node instanceof Text) return node.textContent!
+  if (node instanceof HTMLBRElement) return '\n'
+  if (node instanceof HTMLParagraphElement) return '\n'+Array.from(node.childNodes).map(getHTMLText).join('')
+  return Array.from(node.childNodes).map(getHTMLText).join('')
+}
+
 
 export const view = (putHTML:(el:HTMLElement)=>void) => {
   
@@ -177,7 +183,7 @@ export const view = (putHTML:(el:HTMLElement)=>void) => {
   const show = chain(
 
     s=>setAttr<State>('pageState', render(s.pageState))(s),
-    
+    // s=>log('show',s),
     s=>{
       const parseEventStack = (e:Event):ID[]|undefined=>
         (e.target instanceof HTMLElement && e.target.classList.contains('stack'))?
@@ -192,31 +198,34 @@ export const view = (putHTML:(el:HTMLElement)=>void) => {
           if (t.classList.contains('link')){
             show(toggleLink(stack, linkpath((e.target as HTMLElement).textContent!))(s))   
           }else if (t.classList.contains('line')){
-            if (!(getView(s, stack)as LineView).editable)show(setEditble(stack)(s))
+            const pagestack = stack.slice(0,-1)
+            if (!(getView(s, pagestack)as PageView).editable)show(setEditble(pagestack)(s))
           }
         },
-        input: (e:Event)=>{
+        input: (e:InputEvent)=>{
+          console.log('input', e)
           const stack = parseEventStack(e)
           if (!stack) return
-          if ((e.target as HTMLElement).classList.contains('line')){
+          if ((e.target as HTMLElement).classList.contains('body')){
 
-            const newtext = (getView(s, stack.slice(0,-1)) as PageView).open.map(l=>l.element!.textContent).join('\n')
-            const line = getView(s, stack) as LineView
+            const page = getView(s, stack) as PageView
+            const pageText = page.element!.childNodes[1]!
+            const ptext = getHTMLText(pageText).slice(pageText.childNodes[0]! instanceof HTMLParagraphElement?1:0)
 
             const flatten = (node:ChildNode):Text[]=>{
               if (node instanceof Text) return [node]
+              if (node instanceof HTMLBRElement) return [new Text('\n')]
               return Array.from(node.childNodes).map(flatten).flat()
             }
 
-            const fl = flatten(line.element?.childNodes[0]!)
+            const fl = flatten(pageText)
             const sel = window.getSelection()!
             const nodeidx = fl.findIndex(t=>t==sel.anchorNode)
             const cursorn = fl.slice(0,nodeidx).map(t=>t.textContent).join('').length + sel.anchorOffset
-
             chain(
-              setAttr<State>('selection', {node:stack, offset: cursorn}),
-              setAttr<State>('root', setData(s.root, {...getData(s.root, stack[stack.length-2] as Path), Content:newtext})),
-              updateView<LineView>(stack, setAttr<LineView>('content', newtext.split('\n')[stack[stack.length-1] as number])),
+              setAttr<State>('selection', {node:page.stack, offset: cursorn}),
+              setAttr<State>('root', setData(s.root, {...getData(s.root, log('path',getID(page) as Path)), Content:log('ptext',ptext)})),
+              s=>{return setView(page.stack, setAttr<PageView>('editable', true)(createView(s.root, page.stack)))(s)},
               show
             )(s)
           }
@@ -228,14 +237,13 @@ export const view = (putHTML:(el:HTMLElement)=>void) => {
 
     s=>{
       if(s.selection==undefined)return
-      const v = getView(s, s.selection.node) as LineView
+      const v = getView(s, s.selection.node) as PageView
       if (v === undefined) return
       const fl = (node:ChildNode):Text[]=>{
         if (node instanceof Text) return [node]
         return Array.from(node.childNodes).map(fl).flat()
       }
-      const fls = fl(v.element!.childNodes[0]!)
-      // const nodeidx = s.selection.offset
+      const fls = fl(v.element!.childNodes[1]!)
       const [prevcount,ndx] = fls.reduce(([c, res], t, i)=>{
         if (res>=0) return [c,res]
         const cc = c+t.textContent!.length
@@ -245,16 +253,10 @@ export const view = (putHTML:(el:HTMLElement)=>void) => {
 
       const anchor = fls[ndx]
       const anchorOffset = s.selection.offset - prevcount
-      console.log("anchor",anchor, anchorOffset)
-      assertEq(document.contains(anchor), true, 'show')
-
-      const range = document.createRange()
-      range.setStart(anchor, anchorOffset)
-      range.setEnd(anchor, anchorOffset)
-
-      const sel = window.getSelection()!
-      sel.removeAllRanges()
-      sel.addRange(range)
+      log('selection', anchor, anchorOffset, document.contains(anchor))
+      anchor.parentElement!.focus()
+      window.getSelection()!.collapse(anchor, anchorOffset)
+      console.log(window.getSelection());
     },
   )
 

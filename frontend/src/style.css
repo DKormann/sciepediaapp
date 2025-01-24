@@ -39,3 +39,9 @@ body{
   /* background-color: pink; */
   padding-left: 2em;
 }
+
+
+p {
+  min-height: 1em; /* Or any desired value */
+  /*line-height: 1em; /* Match line-height for consistent spacing */
+}
