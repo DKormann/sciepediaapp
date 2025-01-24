@@ -4,6 +4,12 @@ import {Root as Root, getData, setData, Child, Path, root, child} from './data'
 import { htmlElement, htmlKey } from './_html'
 
 
+console.log('view.ts');
+
+new BroadcastChannel("sciepedia").postMessage({type:'loaded', data:'view.ts'})
+new BroadcastChannel("sciepedia").onmessage = (e)=>console.log("received:",e.data)
+
+
 const comp = (a:any, p:any) => JSON.stringify(a) === JSON.stringify(p)
 
 const assertEq = (a:any, b:any,msg:string) => {comp(a,b) || console.error([a,b], msg)}
@@ -50,9 +56,7 @@ assertEq(stack('#me'), [['me']], 'stack')
 assertEq(stack('#me',0,'#link.other'), [['me'], 0, ['link','other']], 'stack')
 
 const log=<T>(...x:LastT<any,T>)=>(
-  x.forEach(x=>(x instanceof HTMLElement|| x instanceof Event || x instanceof Node) ? console.log(x) :
-  typeof x == 'string' ? console.log(x):
-  console.log(stringify(x))),
+  console.log(...x.map(x=>(x instanceof HTMLElement|| x instanceof Event || x instanceof Node || typeof x == 'string') ? x :stringify(x))),
   last(x))
 
 const stringify = (x:any):string =>
@@ -107,7 +111,7 @@ const lineHTML = (line:LineView):HTMLElement =>
     children: [
       element('span',line.stack, '', 'line span', {children:
         line.content == ''?[element('br',line.stack, '', 'line')]:
-        log('line from words:',line.content.split(' '))
+        line.content.split(' ')
         .map(w=>element('span',line.stack, w, islink(w)?'link':'line'))
         .reduce((l:(HTMLElement)[],w,i)=>[...l,element('span',line.stack, i?' ':'', 'line'), w], []),
       }),
@@ -234,8 +238,6 @@ export const view = (putHTML:(el:HTMLElement)=>void) => {
         input: (e:InputEvent)=>{
           console.log('input', e)
 
-          log(e)
-
           const stack = parseEventStack(e)
           if (!stack) return
           if ((e.target as HTMLElement).classList.contains('body')){
@@ -247,16 +249,21 @@ export const view = (putHTML:(el:HTMLElement)=>void) => {
             const flatten = (node:ChildNode):Text[]=>{
               if (node instanceof Text) return [node]
               if (node instanceof HTMLBRElement) return [new Text('\n')]
-              return Array.from(node.childNodes).map(flatten).flat()
+              return Array.from(node.childNodes).map(flatten).flat().concat(node instanceof HTMLParagraphElement?new Text('\n'):[])
             }
 
             const fl = flatten(pageText)
             const sel = window.getSelection()!
             const nodeidx = fl.findIndex(t=>t==sel.anchorNode)
-            const cursorn = fl.slice(0,nodeidx).map(t=>t.textContent).join('').length + sel.anchorOffset
+            const cursorn = fl.slice(0,nodeidx).map(t=>t.textContent).join('').length + sel.anchorOffset + (e.inputType == 'insertParagraph'?0:0) 
+
+            log(ptext, cursorn)
+            if (e.inputType == 'insertParagraph') return
+            if (e.inputType == 'deleteContentBackward') return
+
             chain(
               setAttr<State>('selection', {node:page.stack, offset: cursorn}),
-              setAttr<State>('root', setData(s.root, {...getData(s.root, log('path',getID(page) as Path)), Content:log('ptext',ptext)})),
+              setAttr<State>('root', setData(s.root, {...getData(s.root, log('path',getID(page) as Path)), Content:ptext})),
               s=>{return setView(page.stack, setAttr<PageView>('editable', true)(createView(s.root, page.stack)))(s)},
               show
             )(s)
@@ -275,18 +282,24 @@ export const view = (putHTML:(el:HTMLElement)=>void) => {
         if (node instanceof Text) return [node]
         return Array.from(node.childNodes).map(fl).flat()
       }
-      const fls = fl(v.element!.childNodes[1]!)
+      const flatten = (node:ChildNode):{el:ChildNode, t:string}[]=>{
+        if (node instanceof Text) return [{el:node, t:node.textContent!}]
+        if (node instanceof HTMLBRElement) return [{el:node, t:'\n'}]
+        return Array.from(node.childNodes).map(flatten).flat().concat(node instanceof HTMLParagraphElement?{el:node,t:'\n'}:[])
+      }
+      const fls = flatten(v.element!.childNodes[1]!)
       const [prevcount,ndx] = fls.reduce(([c, res], t, i)=>{
         if (res>=0) return [c,res]
-        const cc = c+t.textContent!.length
+        const cc = c+t.t.length
         if (cc>=s.selection!.offset) return [c, i]
         return [cc, -1]
       }, [0,-1] )
 
-      const anchor = fls[ndx]
+      const anchor = fls[ndx].el
       const anchorOffset = s.selection.offset - prevcount
-      log('selection', anchor, anchorOffset, document.contains(anchor))
-      anchor.parentElement!.focus()
+      log('selection', anchor, anchorOffset, document.contains(anchor));
+      anchor.parentElement?.focus();
+      // assertEq(document.contains(anchor), true, anchor)
       window.getSelection()!.collapse(anchor, anchorOffset)
       console.log(window.getSelection());
       return s
