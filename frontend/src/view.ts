@@ -3,16 +3,7 @@
 import {Root as Root, getData, setData, Child, Path, root, child} from './data'
 import { htmlElement, htmlKey } from './_html'
 
-
-console.log('view.ts');
-
-new BroadcastChannel("sciepedia").postMessage({type:'loaded', data:'view.ts'})
-new BroadcastChannel("sciepedia").onmessage = (e)=>console.log("received:",e.data)
-
-
-const comp = (a:any, p:any) => JSON.stringify(a) === JSON.stringify(p)
-
-const assertEq = (a:any, b:any,msg:string) => {comp(a,b) || console.error([a,b], msg)}
+import { assertEq, comp, log, last, LastT, stringify, setAttr} from './helpers'
 
 type PageView = {
   type:'page'
@@ -33,20 +24,19 @@ type LineView = {
 type ID = Path|number
 
 type stack = ID[]
-type LastT <S,T> = [...S[], T]
 type PageStack = LastT<ID, Path>
 type LineStack = LastT<ID, number>
 
 type View = LineView|PageView
 
-type State = {
+export type State = {
   pageState:PageView
   root:Root
   selection?:{node:ID[], offset:number}
   editable:ID[]
 }
 
-const islink = (s:string) => s.startsWith('#')
+const islink = (s:string) => s.startsWith('#') && s.length > 1
 const linkpath = (s:string) => s.slice(1).split('.')
 
 const stack=(...x:(string| number)[])=>
@@ -55,24 +45,6 @@ const stack=(...x:(string| number)[])=>
 assertEq(stack('#me'), [['me']], 'stack')
 assertEq(stack('#me',0,'#link.other'), [['me'], 0, ['link','other']], 'stack')
 
-const log=<T>(...x:LastT<any,T>)=>(
-  console.log(...x.map(x=>(x instanceof HTMLElement|| x instanceof Event || x instanceof Node || typeof x == 'string') ? x :stringify(x))),
-  last(x))
-
-const stringify = (x:any):string =>
-  x == undefined? 'undefined':
-  x instanceof Array?
-  `[${
-    x.length==0?'':
-    x.map(x=>stringify(x)).join(', ').replaceAll('\n','\n  ')
-  }]`:
-  typeof x === 'object'?
-  `{\n  ${Object.entries(x).filter(([k,_])=>k!='element' || (x.type!='page'&&x.type!='line')).map(([k,v])=>`${k}:${stringify(v)}`).join(',\n').replaceAll('\n','\n  ')}\n}`
-  :JSON.stringify(x)
-
-
-
-const setAttr=<T>(key:string, value:any)=>(item:T):T=>({...item, [key]:value})
 
 const createView=(r:Root, stack:PageStack):PageView => {
   const node = getData(r, last(stack) as Path)
@@ -91,7 +63,6 @@ const createView=(r:Root, stack:PageStack):PageView => {
   }
 }
 
-const last = <T>(arr:LastT<any,T>):T => arr[arr.length-1]
 const getID = (v:View)=>last(v.stack as LastT<ID, ID>)
 
 const pageHTML = (page:PageView):HTMLElement=>
@@ -199,7 +170,7 @@ function getHTMLText(node:Node):string{
   }
   return Array.from(node.childNodes).map(getHTMLText).join('')
 }
-
+import { sanitizeText } from './editing'
 export const view = (putHTML:(el:HTMLElement)=>void) => {
   
   const r = root(child(['me'], 'hello #link\nnl'), child(['link'], 'world #aka\nalso #akb #link'), child(['aka'], 'aka'))
@@ -208,6 +179,17 @@ export const view = (putHTML:(el:HTMLElement)=>void) => {
     root:r,
     pageState:createView(r, [['me']]),
     editable:[]
+  }
+
+
+
+  const flatten = (node:ChildNode):{el:ChildNode, t:string}[]=>{
+    if (node instanceof Text) return [{el:node, t:node.textContent!}]
+    if (node instanceof HTMLBRElement) return [
+      {el:node, t:''}
+    ]
+    const cres = Array.from(node.childNodes).map(flatten).flat()
+    return (node instanceof HTMLParagraphElement)? [{el:node,t:'\n'}, ...cres]:[{el:node,t:''}, ...cres]
   }
 
   const show = chain(
@@ -235,35 +217,42 @@ export const view = (putHTML:(el:HTMLElement)=>void) => {
             if (!(getView(s, pagestack)as PageView).editable)show(setEditble(pagestack)(s))
           }
         },
+
+        paste: (e:ClipboardEvent)=>{
+          e.preventDefault()
+          log(e.clipboardData?.getData('text'))
+          log(e.target)
+
+          const stack = parseEventStack(e)
+          log(stack)
+        },
         input: (e:InputEvent)=>{
-          console.log('input', e)
 
           const stack = parseEventStack(e)
           if (!stack) return
+
+          if (e.inputType == 'insertFromPaste') e.preventDefault()
+
           if ((e.target as HTMLElement).classList.contains('body')){
 
             const page = getView(s, stack) as PageView
             const pageText = page.element!.childNodes[1]!
             const ptext = getHTMLText(pageText).slice(pageText.childNodes[0]! instanceof HTMLParagraphElement?1:0)
 
-            const flatten = (node:ChildNode):Text[]=>{
-              if (node instanceof Text) return [node]
-              if (node instanceof HTMLBRElement) return [new Text('\n')]
-              return Array.from(node.childNodes).map(flatten).flat().concat(node instanceof HTMLParagraphElement?new Text('\n'):[])
-            }
-
             const fl = flatten(pageText)
             const sel = window.getSelection()!
-            const nodeidx = fl.findIndex(t=>t==sel.anchorNode)
-            const cursorn = fl.slice(0,nodeidx).map(t=>t.textContent).join('').length + sel.anchorOffset + (e.inputType == 'insertParagraph'?0:0) 
+            const nodeidx = fl.findIndex(t=>t.el==sel.anchorNode)
+            if (nodeidx === -1) console.error('nodeidx', sel.anchorNode, fl);
 
-            log(ptext, cursorn)
-            if (e.inputType == 'insertParagraph') return
-            if (e.inputType == 'deleteContentBackward') return
+            const cursorn = fl.slice(0,nodeidx).map(t=>t.t).join('').length + sel.anchorOffset
+            if(e.inputType == 'deleteContentBackward') return
 
-            chain(
-              setAttr<State>('selection', {node:page.stack, offset: cursorn}),
-              setAttr<State>('root', setData(s.root, {...getData(s.root, log('path',getID(page) as Path)), Content:ptext})),
+            cc(
+              s=>({
+                ...s,
+                selection:{node:page.stack, offset: cursorn},
+                root:setData(s.root, {...getData(s.root, getID(page) as Path), Content:ptext}),
+              }),
               s=>{return setView(page.stack, setAttr<PageView>('editable', true)(createView(s.root, page.stack)))(s)},
               show
             )(s)
@@ -282,11 +271,7 @@ export const view = (putHTML:(el:HTMLElement)=>void) => {
         if (node instanceof Text) return [node]
         return Array.from(node.childNodes).map(fl).flat()
       }
-      const flatten = (node:ChildNode):{el:ChildNode, t:string}[]=>{
-        if (node instanceof Text) return [{el:node, t:node.textContent!}]
-        if (node instanceof HTMLBRElement) return [{el:node, t:'\n'}]
-        return Array.from(node.childNodes).map(flatten).flat().concat(node instanceof HTMLParagraphElement?{el:node,t:'\n'}:[])
-      }
+
       const fls = flatten(v.element!.childNodes[1]!)
       const [prevcount,ndx] = fls.reduce(([c, res], t, i)=>{
         if (res>=0) return [c,res]
@@ -296,12 +281,9 @@ export const view = (putHTML:(el:HTMLElement)=>void) => {
       }, [0,-1] )
 
       const anchor = fls[ndx].el
-      const anchorOffset = s.selection.offset - prevcount
-      log('selection', anchor, anchorOffset, document.contains(anchor));
+      const anchorOffset = anchor.nodeName === 'P'?0: s.selection.offset - prevcount
       anchor.parentElement?.focus();
-      // assertEq(document.contains(anchor), true, anchor)
       window.getSelection()!.collapse(anchor, anchorOffset)
-      console.log(window.getSelection());
       return s
     },
   )
@@ -309,16 +291,12 @@ export const view = (putHTML:(el:HTMLElement)=>void) => {
   {
     chain(
       s=>{
-        console.log('test view')
-
         const mev = createView(s.root, [['me']])
         assertEq(mev.open.length, 2, 'createView')
         assertEq(mev.type, 'page', 'createView')
         assertEq(mev.stack, [['me']], 'createView')
-
         const got = getView(s, [['me']])
         assertEq(got, mev, 'getView')
-        
         assertEq(setView([['me']], getView(s, [['me']])!)(s), s, 'setView')
         const ln = getView(s, [['me'],0]) as LineView
         const res = setView([['me'],0], {...ln, content:"hiii"} as LineView)(s)
