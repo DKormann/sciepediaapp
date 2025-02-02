@@ -18,7 +18,7 @@ export const stringify = (x:any):string =>
   x instanceof HTMLElement || x instanceof Node?
   `<${x.nodeName} : "${x.textContent}">`:
   typeof x === 'object'?
-  `{\n  ${Object.entries(x).filter(([k,_])=>k!='element' || (x.type!='page'&&x.type!='line')).map(([k,v])=>`${k}:${stringify(v)}`).join(',\n').replaceAll('\n','\n  ')}\n}`
+  `{\n  ${Object.entries(x).filter(([k,_])=>k!='elements' || (x.type!='page'&&x.type!='line')).map(([k,v])=>`${k}:${stringify(v)}`).join(',\n').replaceAll('\n','\n  ')}\n}`
   :JSON.stringify(x)
 
 export type LastT <S,T> = [...S[], T]
