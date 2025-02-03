@@ -39,7 +39,12 @@ body{
 *:focus{
 	outline: none;
 }
-
+.pad{
+  /* padding-left: 1em; */
+  width:1em;
+  height:1em;
+  display: inline-block;
+}
 .page{
   /* background-color: pink; */
   padding-left: 2em;
