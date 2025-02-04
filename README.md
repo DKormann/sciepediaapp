@@ -1,11 +1,9 @@
-# README
+# sciepedia app
+sciepedia is a frontend for knowledge
 
 ## About
-
-This is the official Wails Vanilla-TS template.
-
-You can configure the project by editing `wails.json`. More information about the project settings can be found
-here: https://wails.io/docs/reference/project-config
+this is gonna be the sciepedia desktop app + web app
+frontend is strictly functional style typescript
 
 ## Live Development
 

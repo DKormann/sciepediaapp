@@ -67,6 +67,8 @@ p {
   min-height: 1em;
   cursor: text;
   position: relative;
+  white-space: pre;
+  font-family: monospace;
 }
 
 .cursor{
