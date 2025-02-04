@@ -38,8 +38,9 @@ const build = (r:Root, path:Path, indent:number):Pelement[] => {
   ]
 }
 
-const render = (par: Pelement):Rendered=>
-  (par.el !== undefined) ? par as Rendered : {...par,
+const render = (par: Pelement):Rendered=>(
+  // (par.el !== undefined) ? par as Rendered : 
+  {...par,
     el: htmlElement('p', '', 'line', {children:[
         ...Array.from({length:par.indent}, _=>htmlElement('div', '', 'pad')),
         ...par.is_title? [htmlElement('span', par.content, 'title')]
@@ -50,19 +51,18 @@ const render = (par: Pelement):Rendered=>
       ]
     }
   )
-}
+})
 
 const insert = <T>(arr:T[], idx:number|undefined, ...elements:T[])=>{
-  return idx==undefined?arr:[...arr.slice(0,idx), ...elements, ...arr.slice(idx)]
+  return idx!=undefined && idx>=0?[...arr.slice(0,idx), ...elements, ...arr.slice(idx)]:arr
 } 
 
 
-const toggleLink = (lnum:number, start:number, end:number):Update=>s=>{
-
+const toggleLink = (lnum:number, start:number, end:number):Update=>s0=>{
+  const s = clearCursor(s0)
   const target = s.p[lnum]
   const link = target.content.slice(start,end)
   assertEq(islink(link), true, 'open non link:'+link)
-
   const prev = s.p.slice(0,lnum)
   const rest = s.p.slice(lnum+1)
   const scope = rest.findIndex(p=>p.indent==target.indent)
@@ -89,6 +89,7 @@ const updateLine = (lnum:number, f:(p:Pelement)=>Pelement):Update=>s=>
   setLine(lnum, f(getLine(lnum)(s)))(s)
 
 const setLine = (lnum: number, line: Pelement):Update=>s=>(
+  log('setLine', lnum, line),
   {
     ...s,
     p: [
@@ -98,14 +99,19 @@ const setLine = (lnum: number, line: Pelement):Update=>s=>(
     ]
   })
 
-const cc = <T> (fs:((a:T)=>T)[]) => (a:T) => fs.reduce((a,f)=>f(a),a)
+const cc = <T> (...fs:((a:T)=>T|void)[]) => (a:T) => fs.reduce((r,f)=>f(r)??r,a)
 
-const setCursor = (lnum:number, cnum:number):Update=>
-  cc([
-    updateLine(lnum, p=>({...p, cursor:cnum,el:undefined})), 
-    s=>updateLine(s.cursor[0],p=>({...p, cursor:undefined}))(s),
-    setAttr('cursor', [lnum,cnum]),
-  ])
+
+const clearCursor:Update = cc(
+  s=>s.cursor[0]>-1?updateLine(s.cursor[0],p=>({...p, cursor:-1, el:undefined}))(s):s,
+  setAttr('cursor', [-1,-1])
+)
+
+const setCursor = (lnum:number, cnum:number):Update=>cc(
+  clearCursor,
+  updateLine(lnum, p=>({...p, cursor:cnum, el:undefined})),
+  setAttr('cursor', [lnum,cnum]),
+)
 
 const findLine = (p:Rendered[],y:number):number=>
   p.findIndex(({el})=>el.clientHeight + el.offsetTop > y)
@@ -114,9 +120,9 @@ const letters = (p:Rendered) => (Array.from(p.el.children).filter(x=>x.nodeName=
 
 const findChar = (p:Rendered, x:number) =>{
   const ls = letters(p)
-  log(ls[0].offsetLeft, ls[0].clientLeft, ls[0].scrollLeft)
-  const i = ls.findIndex(e=>e.offsetLeft > x)
-  return i == -1? ls.length-1:i
+  log(ls[0].clientWidth, ls[0].offsetWidth, ls[0].scrollWidth)
+  const i = ls.findIndex(e=>(e.offsetLeft +e.offsetWidth/2) > x)
+  return i == -1? ls.length:i
 }
 
 const seekWord = (p:Pelement, c:number) =>
@@ -131,7 +137,7 @@ export const view = (putHTML:(el:HTMLElement)=>void) => {
     const onclick = (e:MouseEvent)=>{
       const p = findLine(s.p, e.y+window.scrollY)
       if (p === -1) return
-      const c = findChar(s.p[p], log(e.x)+window.scrollX-Number(window.getComputedStyle(s.p[p].el).fontSize.slice(0,-2))/2)
+      const c = findChar(s.p[p], log(e.x)+window.scrollX)
       const [a,b] = seekWord(s.p[p],c)
       if (islink(s.p[p].content.slice(a,b))){
         show(toggleLink(p,a,b)(s))
@@ -142,11 +148,33 @@ export const view = (putHTML:(el:HTMLElement)=>void) => {
 
     putHTML(htmlElement('div', '', 'root',{
       children: s.p.map(p=>p.el),
-      onclick
+      // onclick,
+      eventListeners:{
+        click: onclick,
+        keydown: (e:KeyboardEvent)=>{
+          log(e)
+          if (['Meta','Control', 'Alt', 'Shift'].includes(e.key)) return
+          if (e.key.startsWith("Arrow")) return
+          if (e.key == 'Enter') return
+          if (e.key == 'Backspace') return
+          if (e.key == 'Delete') return
+          if (e.key == 'Tab') return
+          if (e.key == 'Escape') return
+          
+
+          {
+            if (s.cursor[0] == -1) return
+            cc<State>(
+              updateLine(s.cursor[0], p=>({...p, content:p.content.slice(0,s.cursor[1])+e.key+ p.content.slice(s.cursor[1]), cursor:p.cursor!+1}), ),
+              s=>({...s, cursor:[s.cursor![0], s.cursor![1]+1]}),
+              show
+            )(s)
+
+          }
+
+        },
+      },
     }));
-    {
-      const e= {x: 67, y:111}
-    }
   }
 
   const r = root(child(['hello'],'world is ok\nanother #link is ok too\nnn\nee'), child(['link'], 'this a normal #link\nee\nqq'))

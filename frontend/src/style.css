@@ -55,8 +55,6 @@ body{
   display: inline-block;
 }
 .page{
-  /* background-color: pink; */
-  /* padding-left: 2em; */
   border-left: 1px solid var(--highlight);
 }
 
@@ -73,8 +71,11 @@ p {
 
 .cursor{
   display: inline-block;
-  position:absolute;
-  width: 2px;
+  position: absolute;
+  width: 0px;
   height: 1em;
-  background-color: var(--color);
+  border-left: .1em solid var(--color);
+  /* border-right: .1em solid red; */
+  border-bottom: .2em solid var(--color);
+  animation: blink 1s infinite;
 }
