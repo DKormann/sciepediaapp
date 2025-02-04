@@ -9,7 +9,7 @@ type stack = (number|Path)[]
 type State = {
   r: Root,
   p: Rendered[],
-  cursor: [number, number],
+  cursor: number,
 }
 
 type Pelement = {
@@ -19,7 +19,7 @@ type Pelement = {
   path:Path,
   is_title ?: true,
   el?:HTMLElement,
-  cursor?:number,
+  cursor:number ,
 }
 
 type Rendered = Pelement & {
@@ -33,13 +33,12 @@ const build = (r:Root, path:Path, indent:number):Pelement[] => {
   const node = getData(r, path)
   const tit = node.path.join('.s')
   return [
-    {content:tit,path,indent,is_title:true, children:[]},
-    ...node.Content.split('\n').map(c=>({content:c, indent, path, children:[]}))
+    {content:tit,path,indent,is_title:true, children:[], cursor:-1},
+    ...node.Content.split('\n').map(c=>({content:c, indent, path, children:[], cursor:-1}))
   ]
 }
 
 const render = (par: Pelement):Rendered=>(
-  // (par.el !== undefined) ? par as Rendered : 
   {...par,
     el: htmlElement('p', '', 'line', {children:[
         ...Array.from({length:par.indent}, _=>htmlElement('div', '', 'pad')),
@@ -83,34 +82,39 @@ const toggleLink = (lnum:number, start:number, end:number):Update=>s0=>{
 
 const cursor = ()=>htmlElement('div', '', 'cursor')
 
-const getLine = (lnum:number) => (s:State) => s.p[lnum]
+const getLines = (lnum:number|[number,number]) => (s:State) => 
+  ((typeof lnum == 'number')?[s.p[lnum]]:s.p.slice(lnum[0],lnum[1]))
 
-const updateLine = (lnum:number, f:(p:Pelement)=>Pelement):Update=>s=>
-  setLine(lnum, f(getLine(lnum)(s)))(s)
+const updateLines = (lnum:number|[number,number], f:(p:Pelement[])=>Pelement[]):Update=>s=>
+  setLine(lnum, ...f(getLines(lnum)(s)))(s)
 
-const setLine = (lnum: number, line: Pelement):Update=>s=>(
-  log('setLine', lnum, line),
-  {
+const setLine = (line:number|[number, number], ...lines: Pelement[]):Update=>s=>{
+  const [start,end] = log("set",(typeof line == 'number')?[line,line+1]:line)
+  assertEq(end>=start, true, `end>=start ${end}>=${start}`);
+  const focusline = lines.findIndex(p=>p.cursor>-1)
+  return {
     ...s,
-    p: [
-      ...s.p.slice(0,lnum),
-      render(line),
-      ...s.p.slice(lnum+1)
-    ]
-  })
+    p: log("new p",[
+      ...s.p.slice(0,start),
+      ...lines.map(render),
+      ...s.p.slice(end)
+    ]),
+    cursor: focusline == -1? s.cursor: start+focusline,
+  }
+}
 
 const cc = <T> (...fs:((a:T)=>T|void)[]) => (a:T) => fs.reduce((r,f)=>f(r)??r,a)
 
 
 const clearCursor:Update = cc(
-  s=>s.cursor[0]>-1?updateLine(s.cursor[0],p=>({...p, cursor:-1, el:undefined}))(s):s,
+  s=>s.cursor>-1?updateLines(s.cursor,([p])=>([{...p, cursor:-1, el:undefined}]))(s):s,
   setAttr('cursor', [-1,-1])
 )
 
 const setCursor = (lnum:number, cnum:number):Update=>cc(
   clearCursor,
-  updateLine(lnum, p=>({...p, cursor:cnum, el:undefined})),
-  setAttr('cursor', [lnum,cnum]),
+  updateLines(lnum, ([p])=>([{...p, cursor:cnum, el:undefined}])),
+  setAttr('cursor', lnum),
 )
 
 const findLine = (p:Rendered[],y:number):number=>
@@ -120,7 +124,7 @@ const letters = (p:Rendered) => (Array.from(p.el.children).filter(x=>x.nodeName=
 
 const findChar = (p:Rendered, x:number) =>{
   const ls = letters(p)
-  log(ls[0].clientWidth, ls[0].offsetWidth, ls[0].scrollWidth)
+  // log(ls[0].clientWidth, ls[0].offsetWidth, ls[0].scrollWidth)
   const i = ls.findIndex(e=>(e.offsetLeft +e.offsetWidth/2) > x)
   return i == -1? ls.length:i
 }
@@ -148,30 +152,50 @@ export const view = (putHTML:(el:HTMLElement)=>void) => {
 
     putHTML(htmlElement('div', '', 'root',{
       children: s.p.map(p=>p.el),
-      // onclick,
       eventListeners:{
         click: onclick,
         keydown: (e:KeyboardEvent)=>{
-          log(e)
           if (['Meta','Control', 'Alt', 'Shift'].includes(e.key)) return
           if (e.key.startsWith("Arrow")) return
-          if (e.key == 'Enter') return
-          if (e.key == 'Backspace') return
+          if (e.key == 'Enter') {
+            cc(
+              updateLines(s.cursor, ([p])=>([
+                {...p, content:p.content.slice(0,p.cursor), cursor:-1},
+                {...p, content:p.content.slice(p.cursor), cursor:0},
+              ])),
+              show
+            )(s)
+            return
+          }
+          if (e.key == 'Backspace') {
+            cc(
+              updateLines([s.cursor-1, s.cursor+1], ps=>{
+                if (ps.length==0) return []
+                if (ps.length==1) {
+                  const p = ps[0]
+                  return [{...p, content:p.content.slice(0,p.cursor-1)+p.content.slice(p.cursor), cursor:p.cursor!-1}]
+                }else{
+                  const [p1,p2] = ps
+                  return p2.cursor>0 || p1.is_title?
+                  [p1, {...p2, content:log(p2.content.slice(0,Math.max(0,p2.cursor-1)))+log(p2.content.slice(p2.cursor)), cursor:Math.max(0,p2.cursor-1)}]
+                  :[{...p1, content:p1.content+p2.content, cursor:p1.content.length}]
+                }
+              }),
+              show
+            )(s)
+            return 
+          }
           if (e.key == 'Delete') return
           if (e.key == 'Tab') return
           if (e.key == 'Escape') return
-          
-
           {
-            if (s.cursor[0] == -1) return
+            if (s.cursor == -1) return
             cc<State>(
-              updateLine(s.cursor[0], p=>({...p, content:p.content.slice(0,s.cursor[1])+e.key+ p.content.slice(s.cursor[1]), cursor:p.cursor!+1}), ),
-              s=>({...s, cursor:[s.cursor![0], s.cursor![1]+1]}),
+              updateLines(s.cursor, ([p])=>([{...p, cursor:0}])),
               show
             )(s)
-
+            return
           }
-
         },
       },
     }));
@@ -181,6 +205,6 @@ export const view = (putHTML:(el:HTMLElement)=>void) => {
   show({
     r,
     p: build(r, ['hello'], 1).map(render),
-    cursor: [0,-1]
+    cursor: 0,
   })  
 }
