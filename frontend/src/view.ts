@@ -124,7 +124,6 @@ const letters = (p:Rendered) => (Array.from(p.el.children).filter(x=>x.nodeName=
 
 const findChar = (p:Rendered, x:number) =>{
   const ls = letters(p)
-  // log(ls[0].clientWidth, ls[0].offsetWidth, ls[0].scrollWidth)
   const i = ls.findIndex(e=>(e.offsetLeft +e.offsetWidth/2) > x)
   return i == -1? ls.length:i
 }
@@ -133,6 +132,25 @@ const seekWord = (p:Pelement, c:number) =>
   [c-last(p.content.slice(0,c).split(' ')).length , c+p.content.slice(c).split(' ')[0].length]
 
 type Update = (s:State) => State
+
+const cursorMove=(dl:number, dc:number):Update => s=>{
+  const old = getLines(s.cursor)(s)[0]
+  const [ln, cn] = [s.cursor+dl, old.cursor+dc]
+  const newp = getLines(ln)(s)[0]
+  if (newp == undefined || newp.is_title) return s
+  if (cn<0) {
+    const ln = s.cursor-1
+    const newp = getLines(ln)(s)[0]
+    if (newp == undefined || newp.is_title) return s
+    return setCursor(ln, newp.content.length)(s)
+  }
+  if (cn>newp.content.length && dc){
+      const newp = getLines(ln+1)(s)[0]
+      if (newp == undefined || newp.is_title) return s
+      return setCursor(ln+1, 0)(s)
+  }
+  return setCursor(ln,cn)(s)
+}
 
 export const view = (putHTML:(el:HTMLElement)=>void) => {
 
@@ -156,7 +174,12 @@ export const view = (putHTML:(el:HTMLElement)=>void) => {
         click: onclick,
         keydown: (e:KeyboardEvent)=>{
           if (['Meta','Control', 'Alt', 'Shift'].includes(e.key)) return
-          if (e.key.startsWith("Arrow")) return
+          if (e.key.startsWith("Arrow")){
+
+            return show(cursorMove(
+              e.key == 'ArrowUp'?-1:e.key == 'ArrowDown'?1:0,
+              e.key == 'ArrowLeft'?-1:e.key == 'ArrowRight'?1:0)(s))
+          }
           if (e.key == 'Enter') {
             cc(
               updateLines(s.cursor, ([p])=>([
@@ -185,13 +208,15 @@ export const view = (putHTML:(el:HTMLElement)=>void) => {
             )(s)
             return 
           }
-          if (e.key == 'Delete') return
+          if (e.key == 'Delete') {
+            return
+          }
           if (e.key == 'Tab') return
           if (e.key == 'Escape') return
           {
             if (s.cursor == -1) return
             cc<State>(
-              updateLines(s.cursor, ([p])=>([{...p, cursor:0}])),
+              updateLines(s.cursor, ([p])=>([{...p, content:p.content.slice(0,p.cursor)+e.key+p.content.slice(p.cursor) , cursor:p.cursor+1}])),
               show
             )(s)
             return
