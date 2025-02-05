@@ -5,6 +5,9 @@ import { htmlElement, htmlKey } from './_html'
 
 import { assertEq, comp, log, last, LastT, stringify, setAttr} from './helpers'
 
+const max = Math.max
+const abs = Math.abs
+
 type State = {
   r: Root,
   p: Rendered[],
@@ -174,6 +177,7 @@ export const view = (putHTML:(el:HTMLElement)=>void) => {
         keydown: (e:KeyboardEvent)=>{
           
           if (['Meta','Control', 'Alt', 'Shift'].includes(e.key)) return
+
           if (e.key.startsWith("Arrow")){
             e.preventDefault()
 
@@ -204,17 +208,19 @@ export const view = (putHTML:(el:HTMLElement)=>void) => {
             return
           }
           if (e.key == 'Backspace') {
+            const speed = e.altKey?5:e.metaKey?getLines(s.cursor)(s)[0].cursor:1
+            log({speed})
             return show(updateLines([s.cursor-1, s.cursor+1], ps=>{
               if (ps.length==0) return []
+
               if (ps.length==1) {
                 const p = ps[0]
-                return [{...p, content:p.content.slice(0,p.cursor-1)+p.content.slice(p.cursor), cursor:p.cursor!-1}]
+                return [{...p, content:p.content.slice(0,p.cursor-speed)+p.content.slice(p.cursor), cursor:Math.max(0, p.cursor!-speed)}]
               }else{
                 const [p1,p2] = ps
-                log(p1,p2)
                 return (p2.cursor>0 || p1.indent!=p2.indent)?
-                [p1, {...p2, content:log(p2.content.slice(0,Math.max(0,p2.cursor-1)))+log(p2.content.slice(p2.cursor)), cursor:Math.max(0,p2.cursor-1)}]
-                :[{...p1, content:p1.content+p2.content, cursor:p1.content.length}]
+                [p1, {...p2, content:log(p2.content.slice(0,Math.max(0,p2.cursor-speed)))+log(p2.content.slice(p2.cursor)), cursor:Math.max(0,p2.cursor-speed)}]
+                :[{...p1, content:p1.content.slice(0,-speed)+p2.content, cursor:p1.content.length+1-speed}]
               }
             })(s))
           }
@@ -224,8 +230,9 @@ export const view = (putHTML:(el:HTMLElement)=>void) => {
             e.preventDefault()
             return show(updateLines(s.cursor, ([p])=>([{...p, content:p.content.slice(0,p.cursor)+'  '+p.content.slice(p.cursor) , cursor:p.cursor+2}]))(s))
           }
+
           if (e.key == 'Escape') return
-          {
+          if (e.key.length==1){
             if (e.metaKey) {
               return
             }
