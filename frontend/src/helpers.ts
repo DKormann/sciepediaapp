@@ -42,17 +42,18 @@ function hash(input: string, seed: bigint = 0xcbf29ce484222325n): bigint {
 export const uuid=<T >(x:T):T & {id:bigint}=>{
 
   const _id =(x:any):[any, bigint]=>{
+    if (x == undefined) return [x, hash('undefined')]
     if (x.id != undefined) return [x, x.id]
+    if (x instanceof Array){
+      const dat = x.map(v=>_id(v))
+      const id = hash(dat.map(([v,id])=>id).join(','))
+      return [dat.map(([v,id])=>v), id]
+    }
     if (x instanceof Object){
       const dat = Object.entries(x).map(([k,v])=>[k, _id(v)])
       const id = hash(dat.map(([k,[v,id]])=>`${k}:${id}`).join(','))
       const newob = Object.fromEntries(dat.map(([k,[v,id]])=>[k,v]).concat([['id', id]]))
       return [newob, id]
-    }
-    if (x instanceof Array){
-      const dat = x.map(v=>_id(v))
-      const id = hash(dat.map(([v,id])=>id).join(','))
-      return [dat.map(([v,id])=>v), id]
     }
     return [x, hash(stringify(x))]
   }

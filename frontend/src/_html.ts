@@ -8,7 +8,6 @@ export const htmlElement = (tag:string, text:string, cls:string, args?:Partial<R
     if (key==='children'){
       (value as HTMLElement[]).forEach(c=>_element.appendChild(c))
     }else if (key==='eventListeners'){
-      console.log(key, value)
       Object.entries(value as Record<string, (e:Event)=>void>).forEach(([event, listener])=>{
         _element.addEventListener(event, listener)
       })
