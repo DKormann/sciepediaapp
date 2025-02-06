@@ -154,6 +154,29 @@ const cursorMove=(dl:number, dc:number):Update => s=>{
   return setCursor(ln,cn)(s)
 }
 
+type Pos ={
+  l:number,
+  c:number,
+}
+
+
+
+const deleteText = (start:Pos, end:Pos):Update=>s=>{
+  const [sline, eline] = [start.l, end.l]
+  const [sc, ec] = [start.c, end.c]
+  const [p1, p2] = [s.p[sline], s.p[eline]]
+  if (sline == eline) return updateLines(sline, ([p])=>[{...p, content:p.content.slice(0,sc)+p.content.slice(ec), cursor:sc}])(s)
+  return updateLines([sline,eline], ([p1,p2])=>{
+    if (p1.indent == p2.indent){
+      return [{...p1, content:p1.content.slice(0,sc)+p2.content.slice(ec), cursor:sc}]
+    }
+    return [
+      {...p1, content:p1.content.slice(0,sc)+p2.content, cursor:sc},
+      {...p2, content:'', cursor:0},
+    ]
+  })(s)
+}
+
 export const view = (putHTML:(el:HTMLElement)=>void) => {
 
   const show = (s:State)=>{
