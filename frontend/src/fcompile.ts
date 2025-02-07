@@ -78,11 +78,12 @@ const parser = (code:string):expression => {
             parse_continue(tok, nidx)
   }
 
-  const parse_number:parse<expression> = (idx) =>{
+  const parse_number:parse<primitive> = (idx) =>{
     const tok = toks[idx]
     if (tok === undefined) throw new Error('unexpected end of input')
     if (!/^[0-9]+$/.test(tok)) throw new Error(`expected number, got ${tok}`)
-    return  parse_continue({number:parseInt(tok)}, next(idx))
+    // return  parse_continue({number:parseInt(tok)}, next(idx))
+    return [{number:parseInt(tok)}, next(idx)]
   }
 
   const parse_string:parse<{string:string}> = (idx) =>{
@@ -134,7 +135,7 @@ const parser = (code:string):expression => {
     const [exprs, nidx] = parse_tup(idx)
     if (toks[nidx] === '=>') return parse_lam(exprs, nidx)
     if (exprs.length !==1) throw new Error('cant have arg list outside of lambda')
-    return parse_continue(exprs[0], nidx)
+    return [exprs[0], nidx]
   }
 
   const parse_continue = ( exp: expression, idx: number):[expression, number] =>
@@ -196,16 +197,16 @@ const parser = (code:string):expression => {
 
 
   // log(toks.join(''))
-  const parse_expression: parse<expression> = (idx=0) =>{
+  const parse_expression: parse<expression> = (idx0=0) =>{
+    const idx = nextS(idx0)
     const tok = toks[idx]
     const [res, nidx] =
-    (/\s+/.test(tok)) ? parse_expression(idx+1):
-    (/[0-9]/.test(tok[0]))? parse_number(idx):
+    (/[0-9]/.test(tok[0]))? parse_continue(...parse_number(idx)):
     (/\"/.test(tok[0])) ? parse_continue(... parse_string(idx+1)):
+    (tok === '(') ? parse_continue(...parse_parens(idx+1)):
     (/\[/.test(tok)) ? parse_arr(idx+1):
     (/\{/.test(tok)) ? parse_obj(idx+1):
-    (tok === '(') ? parse_parens(idx+1):
-    (/(\+)|(\-)|(\!)/.test(tok)) ? parse_un(idx):
+    (/(\+)|(\-)|(\!)/.test(tok)) ? parse_continue(...parse_un(idx)):
     parse_literal(idx)
     return [res, nextS(nidx)]
   }
@@ -250,6 +251,17 @@ assertEq(parser("{a:1}"), {obj:[[{tag:"a"},{number:1}]]}, "compile {a:1}")
 assertEq(parser("{a:1, b:2, }"), {obj:[[{tag:"a"},{number:1}], [{tag:"b"},{number:2}]]}, "compile {a:1, b:2}")
 assertEq(parser('{a:1, "bonobo":(3+4), c: !x, val, ...rest}'), {obj:[[{tag:"a"},{number:1}], [{string:"bonobo"},{operator:"+", left:{number:3}, right:{number:4}}], [{tag:"c"},{operator:"!", operand:{tag:"x"}}], {tag:"val"}, {spread:{tag:"rest"}}]}, "compile {a:1, 'bonobo':3+4, c:!x, val, ...rest}")
 
+
+const compile_js = (ast:expression):string =>{
+
+
+  
+
+  return ''
+
+}
+
+
+
+
 export {}
-
-
