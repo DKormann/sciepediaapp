@@ -6,24 +6,45 @@ e: let a = 1 in
 fn(a)
 }
 
-
-
 ## syntax:
 
 type Expression
-  = Number
-  | Identifier
-  | Function
-  | Application
-  | Let
-  | If
-  | Binary
-  | Unary
+  = primitive
+  | identifier
+  | lambda
+  | application
+  | let
+  | if
+  | binary
+  | unary
 
-type Identifier = string
+type primitive = number | string | boolean | null | undefined
 
-type Function = {
-  params: Identifier[],
+type lambda = {
+  params: identifier[],
   body: Expression
 }
+
+type let = {
+  binding: [identifier, Expression],
+  body: Expression
+}
+
+type if = {
+  condition: Expression,
+  then: Expression,
+  else: Expression
+}
+
+type binary = {
+  right: Expression,
+  operator: string,
+  left: Expression
+}
+
+type unary = {
+  operator: string,
+  operand: Expression
+}
+
 

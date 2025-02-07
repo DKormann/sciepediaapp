@@ -2,7 +2,7 @@
 // @ts-ignore
 import {Root as Root, getData, setData, Child, Path, root, child} from './data'
 import { htmlElement, htmlKey } from './_html'
-
+import "./fcompile"
 
 import { assertEq, comp, log, last, LastT, stringify, setAttr, uuid} from './helpers'
 
@@ -65,9 +65,8 @@ const insert = <T>(arr:T[], idx:number|undefined, ...elements:T[])=>{
   return idx!=undefined && idx>=0?[...arr.slice(0,idx), ...elements, ...arr.slice(idx)]:arr
 } 
 
-
 const toggleLink = (lnum:number, start:number, end:number):Update=>s0=>{
-  const s = clearCursor(s0)
+  const s = pushhist(clearCursor(s0))
   const target = s.p[lnum]
   const link = target.content.slice(start,end)
   assertEq(islink(link), true, 'open non link:'+link)
@@ -89,7 +88,7 @@ const toggleLink = (lnum:number, start:number, end:number):Update=>s0=>{
 
 const cursor = ()=>htmlElement('div', '', 'cursor')
 
-const getLines = (lnum:number|[number,number]) => (s:State) => 
+const getLines = (lnum:number|[number,number|undefined]) => (s:State) => 
   ((typeof lnum == 'number')?[s.p[lnum]]:s.p.slice(lnum[0],lnum[1]))
 
 const updateLines = (lnum:number|[number,number], f:(p:Pelement[])=>Pelement[]):Update=>s=>
@@ -133,6 +132,14 @@ const findChar = (p:Rendered, x:number) =>{
   return i == -1? ls.length:i
 }
 
+const seekPage = (pn:number, s:State) =>{
+  const fe = s.p.slice(pn).findIndex(p=>p.is_title)
+  return getLines([
+    s.p.slice(0,pn).reverse().findIndex(p=>p.is_title),
+    fe == -1?undefined:fe
+  ])
+}
+
 const seekWord = (p:Pelement, c:number) =>
   [c-last(p.content.slice(0,c).split(' ')).length , c+p.content.slice(c).split(' ')[0].length]
 
@@ -157,9 +164,14 @@ const cursorMove=(dl:number, dc:number):Update => s=>{
   return setCursor(ln,cn)(s)
 }
 
-const pushhist:Update = s=> (log('push'),(last (s.hist) == undefined || uuid(s).id != 
+
+
+const pushhist:Update = s=> (
+  localStorage.setItem('root', stringify(log(s.r))),
+  log('push'),(last (s.hist) == undefined || uuid(s).id != 
 uuid(last(s.hist)).id
 ) ?setStateVar('hist', [...s.hist.slice(-10), s])(s):(log('no change'), s))
+
 
 export const view = (putHTML:(el:HTMLElement)=>void) => {
 
@@ -203,6 +215,7 @@ export const view = (putHTML:(el:HTMLElement)=>void) => {
           }
           if (e.key == 'Enter') {
             cc(
+              pushhist,
               updateLines(s.cursor, ([p])=>([
                 {...p, content:p.content.slice(0,p.cursor), cursor:-1},
                 {...p, content:p.content.slice(p.cursor), cursor:0},
@@ -260,7 +273,8 @@ export const view = (putHTML:(el:HTMLElement)=>void) => {
     }));
   }
 
-  const r = root(child(['hello'],'world is ok\nanother #link is ok too\nnn\nee'), child(['link'], 'this a normal #link\nee\nqq'))
+
+  const r = root()
   show({
     r,
     p: build(r, ['hello'], 1).map(render),
