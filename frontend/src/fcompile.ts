@@ -74,7 +74,7 @@ type obj = {type:'obj', value:([stringliteral, expression]| spread)[]}
 
 
 const tokenize = (code:string):string[] =>
-  code.split(/([()])|(\s+)|(\[|\])|(\{|\})|(\[|\])|(\->)|(\=>)|(\;)|(\?)|(\==)|(\=)|(\,)|(\")|(\-)|(\+)|(\*)|(\!)|(\.\.\.)|(\.)|(\:)/).filter(s=>s!==undefined).filter(s=>s.length>0)
+  code.split(/([()])|(\s+)|(\/\/)|(\[|\])|(\{|\})|(\[|\])|(\=>)|(\;)|(\?)|(\==)|(\=)|(\,)|(\")|(\-)|(\+)|(\*)|(\!)|(\<)|(\.\.\.)|(\.)|(\:)/).filter(s=>s!==undefined).filter(s=>s.length>0)
 
 const parser = (code:string):expression => {
   const toks = tokenize(code)
@@ -87,7 +87,6 @@ const parser = (code:string):expression => {
     if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(tok)) throw new Error(`expected identifier, got ${tok}`)
     return [{type:"identifier", value:tok}, next(idx)]
   }
-
   const parse_literal:parse<expression> = (idx) =>{
     const [tok, nidx] = parse_identifier(idx)
     return  (toks[nidx] === '=>') ? parse_lam([tok], nidx):
@@ -224,12 +223,14 @@ const parser = (code:string):expression => {
     return [{type:"if",condition:cond, then, els:els}, nnidx]
   }
 
-  // log(toks.join('|'))
+  const parse_comment = (idx:number):number =>
+    (log(toks[idx]), toks[idx].includes('\n')? next(idx): parse_comment(idx+1))
+
   const parse_expression: parse<expression> = (idx0=0) =>{
+    if (toks[idx0] == '//') return  parse_expression(parse_comment(idx0))
     const idx = nextS(idx0)
     const tok = toks[idx]
-    const [res, nidx] =
-    (/[0-9]/.test(tok[0]))? parse_continue(...parse_number(idx)):
+    return (/[0-9]/.test(tok[0]))? parse_continue(...parse_number(idx)):
     (/\"/.test(tok[0])) ? parse_continue(... parse_string(idx+1)):
     (tok === '(') ? parse_continue(...parse_parens(idx+1)):
     (/\[/.test(tok)) ? parse_continue(...parse_arr(idx+1)):
@@ -237,7 +238,7 @@ const parser = (code:string):expression => {
     (/(\+)|(\-)|(\!)/.test(tok)) ? parse_continue(...parse_un(idx)):
     (/^(true|false)$/.test(tok)) ? parse_continue({type:"boolean", value:tok === 'true'}, next(idx)):
     parse_continue(...parse_literal(idx))
-    return [res, nextS(nidx)]
+
   }
   
   const res = parse_expression(0)
@@ -305,11 +306,13 @@ const un = (operator:'!'|'-', operand:expression):unary => ({type:"unary", opera
   assertEq(parser('e[x]'), {type:"index", source:{type:"identifier", value:"e"}, key:{type:"identifier", value:"x"}}, "compile e.x")
   assertEq(parser('e.x.y'), {type:"index", source:{type:"index", source:{type:"identifier", value:"e"}, key:{type:"string", value:"x"}}, key:{type:"string", value:"y"}}, "compile e.x.y")
 
-
   assertEq(parser("x = 22; x"), {type:"const", binding:[iden("x"), prim("number", 22)], body:iden("x")}, "compile x=22;x")
   assertEq(parser("x = 22; y = 33; x"), {type:"const", binding:[iden("x"), prim("number", 22)], body:{type:"const", binding:[iden("y"), prim("number", 33)], body:iden("x")}}, "compile x=22;y=33;x")
   assertEq(parser("[x=22;x]"), {type:"arr", value:[{type:"const", binding:[iden("x"), prim("number", 22)], body:iden("x")}]}, "compile [x=22;x]")
   assertEq(parser("{x: x=22;x}"), {type:"obj", value:[[strn("x"), {type:"const", binding:[iden("x"), prim("number", 22)], body:iden("x")}] ]}, "compile {x: x=22;x}")
+
+  assertEq(parser("x=2;\nx"), {type:"const", binding:[iden("x"), prim("number", 2)], body:iden("x")}, "compile x=2;\nx")
+  assertEq(parser("x=2;//end line comment \ny=3;\n//new line comment \n x+y"), {type:"const", binding:[iden("x"), prim("number", 2)], body:{type:"const", binding:[iden("y"), prim("number", 3)], body:bin("+", iden("x"), iden("y"))}}, "compile x=2;y=3;x+y")
 
   assertErr(()=>{parser('x y')}, 'shouldnt accept x y')
   assertErr(()=>{parser('x.[y]')}, 'shouldnt accept x.[y]')
@@ -373,10 +376,16 @@ checkeval('{"u":x = 3; x}', {u:3})
 checkeval('{"e":x = 44; x}', {e:44})
 checkeval('[1, x=2; x*2]', [1,4])
 checkeval('x = 22; x', 22)
+checkeval(`x = 22;\ny =\n 33;x + y`, 55)
 
+const runf = (s:string) => eval(log(cpjs(s)))
 
-
-
-
+log(runf(`
+  add = (a,b)=>a+b;
+  fib = n=>(n<2)?1:fib(n-1)+fib(n-2); 
+  //fib(0)
+  _="this is a comment";
+  fib(5)
+`))
 
 export {}
