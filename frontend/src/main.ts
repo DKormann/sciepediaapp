@@ -14,3 +14,5 @@ view((el:HTMLElement)=>{
   el.tabIndex = el.tabIndex ?? 0
   el.focus()
 })
+
+import "./fcompile"
