@@ -224,7 +224,7 @@ const parser = (code:string):expression => {
   }
 
   const parse_comment = (idx:number):number =>
-    (log(toks[idx]), toks[idx].includes('\n')? next(idx): parse_comment(idx+1))
+    (toks[idx], toks[idx].includes('\n')? next(idx): parse_comment(idx+1))
 
   const parse_expression: parse<expression> = (idx0=0) =>{
     if (toks[idx0] == '//') return  parse_expression(parse_comment(idx0))
@@ -340,6 +340,7 @@ const compile_js = (ast:expression|spread):string =>{
   ast.type == "if" ? `(${compile_js(ast.condition)}?${compile_js(ast.then)}:${compile_js(ast.els)})`:
   ast.type == "lambda" ? `(${ast.params.map(compile_js).join(",")})=>${compile_js(ast.body)}`:
   ast.type == "const" ? `(()=>{const ${compile_js(ast.binding[0])} = ${compile_js(ast.binding[1])}; return ${compile_js(ast.body)}})()`:
+  ast.type == "index" ? `${compile_js(ast.source)}[${compile_js(ast.key)}]`:
   '<unknown>'
 }
 
@@ -383,9 +384,22 @@ const runf = (s:string) => eval(log(cpjs(s)))
 log(runf(`
   add = (a,b)=>a+b;
   fib = n=>(n<2)?1:fib(n-1)+fib(n-2); 
-  //fib(0)
-  _="this is a comment";
-  fib(5)
+  // fib(0)
+  // fib(40)
+  fastfib = n =>
+  _fib = (a,b,c) => c?_fib(b,a+b,c-1):a;
+  _fib(1,1,n);
+  a = 44;
+  x = {a:1,x:a};
+  // [x.a,x.x,3]
+  _=log(22);
+  {...x, x:44}
 `))
+
+// log(runf(`
+//   x = 33;
+//   x = {a:1, b:2};
+//   x.a
+//   `))
 
 export {}
