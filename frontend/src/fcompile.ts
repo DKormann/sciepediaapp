@@ -73,6 +73,9 @@ type arr = {type:'arr', value:(expression|spread)[]}
 type obj = {type:'obj', value:([stringliteral, expression]| spread)[]}
 
 
+// binding power:
+// "*" = "/" > "+" = "-" > "==" > "=" = > "?"
+
 const tokenize = (code:string):string[] =>
   code.split(/([()])|(\s+)|(\/\/)|(\[|\])|(\{|\})|(\[|\])|(\=>)|(\;)|(\?)|(\==)|(\=)|(\,)|(\")|(\-)|(\+)|(\*)|(\!)|(\<)|(\.\.\.)|(\.)|(\:)/).filter(s=>s!==undefined).filter(s=>s.length>0)
 
@@ -110,7 +113,8 @@ const parser = (code:string):expression => {
   }
 
   const parse_spread:parse<spread> = (idx) =>{
-    const [expr, nidx] = parse_expression(idx)
+    assertEq(toks[idx], '...', 'spread operator missing')
+    const [expr, nidx] = parse_expression(next(idx))
     return [{type:'spread', value:expr}, nidx]
   }
 
@@ -118,7 +122,7 @@ const parser = (code:string):expression => {
     const tok = toks[idx]
     if (tok === ']') return [{type:'arr',value:[]}, next(idx)]
     if (tok === ',') return parse_arr(next(idx))
-    const [expr, nidx] = (tok === '...')? parse_spread(next(idx)): parse_expression(idx)
+    const [expr, nidx] = (tok === '...')? parse_spread(idx): parse_expression(idx)
     const [rest, nnidx] = parse_arr(nidx)
     return [{type:'arr', value:[expr, ...rest.value]}, nnidx]
   }
@@ -129,7 +133,7 @@ const parser = (code:string):expression => {
     if (tok === '}') return [{type:'obj', value:[]}, next(idx)]
     if (tok === ',') return parse_obj(next(idx))
 
-    const [item, nidx] = (tok === '...')? parse_spread(next(idx)): (() =>{
+    const [item, nidx] = (tok === '...')? parse_spread(idx): (() =>{
       const [key, nidx] = (tok[0] === '"')? parse_string(idx+1): (parse_identifier(idx) as [identifier,number])
       if (toks[0] == '"') assertEq(toks[nidx], ':', 'expected :')
       const [val, nnidx] = (toks[nidx] === ':')? parse_expression(next(nidx)): [key, nidx]
@@ -147,8 +151,8 @@ const parser = (code:string):expression => {
   const parse_parens = (idx:number):[expression, number] =>{
     const [exprs, nidx] = parse_tup(idx)
     if (toks[nidx] === '=>') return parse_lam(exprs, nidx)
-    if (exprs.length !==1) throw new Error('cant have arg list outside of lambda')
-    return [exprs[0], nidx]
+    assertEq(exprs.length, 1, 'cant have arg list outside of lambda')
+    return parse_continue(exprs[0], nidx)
   }
 
   const parse_continue = ( exp: expression, idx: number):[expression, number] =>
@@ -255,7 +259,9 @@ const fn = (params:identifier[], body:expression):lambda => ({type:"lambda", par
 const app = (operator:expression, operands:expression[]):application => ({type:"application", operator, operands})
 const bin = (operator:operator, left:expression, right:expression):binary => ({type:"binary", operator, left, right})
 const un = (operator:'!'|'-', operand:expression):unary => ({type:"unary", operator, operand});
-{
+const num = (value:number) => prim("number", value) as numberliteral
+
+try {
   assertEq(parser("x"), prim("identifier", "x"), "compile x")
   assertEq(parser('true'), prim("boolean", true), "compile true")
   assertEq(parser('true_y'), prim("identifier", "true_y"), "compile true_y")
@@ -286,6 +292,9 @@ const un = (operator:'!'|'-', operand:expression):unary => ({type:"unary", opera
   assertEq(parser("1 % 2"), bin("%", prim("number", 1), prim("number", 2)), "compile 1%2")
   assertEq(parser("1 == 2"), bin("==", prim("number", 1), prim("number", 2)), "compile 1==2")
   assertEq(parser("1 + 2 + 4"), bin("+", prim("number", 1), bin("+", prim("number", 2), prim("number", 4))), "compile 1+2+4")
+
+  // assertEq(parser("1 + 2 * 3"), bin("+", num(1), bin("*", num(2), num(3))), "weighting of binary operators wrong")
+  // assertEq(parser("1 * 2 + 3"), bin("+", bin("*", num(1), num(2)), num(3)), "weighting of binary operators wrong")
 
   assertEq(parser("-1"), un("-", prim("number", 1)), "compile -1")
   assertEq(parser("!1"), un("!", prim("number", 1)), "compile !1")
@@ -322,7 +331,8 @@ const un = (operator:'!'|'-', operand:expression):unary => ({type:"unary", opera
   assertErr(()=>{parser('x[1,2]')}, 'shouldnt accept x[1,2]')
   assertErr(()=>{parser('x"2"')}, 'shouldnt accept x"2"')
 
-
+}catch(e){
+  console.error(e)
 }
 
 
@@ -379,11 +389,16 @@ checkeval('[1, x=2; x*2]', [1,4])
 checkeval('x = 22; x', 22)
 checkeval(`x = 22;\ny =\n 33;x + y`, 55)
 
-const runf = (s:string) => eval(log(cpjs(s)))
+
+const runf = (s:string) => eval(cpjs(s))
 
 log(runf(`
+  _=log("hello!");
   add = (a,b)=>a+b;
-  fib = n=>(n<2)?1:fib(n-1)+fib(n-2); 
+  fib = n=>
+  (n<2)?
+    1:
+    fib(n-1)+fib(n-2);
   // fib(0)
   // fib(40)
   fastfib = n =>
@@ -392,14 +407,16 @@ log(runf(`
   a = 44;
   x = {a:1,x:a};
   // [x.a,x.x,3]
-  _=log(22);
-  {...x, x:44}
+  y = {...x, e:22};
+
+  {...x, x:44, ...y}
 `))
 
-// log(runf(`
-//   x = 33;
-//   x = {a:1, b:2};
-//   x.a
-//   `))
+
+log(cpjs("3 + 4 * 5"))
+log(cpjs("3 * 4 + 5"))
+log(cpjs("2>1?3:4"))
+
 
 export {}
+
