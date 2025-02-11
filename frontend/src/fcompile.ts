@@ -1,422 +1,196 @@
 import { assertEq, assertErr, log, stringify } from "./helpers"
 
-type identifier = {type:"identifier", value: string}
-
-type stringliteral = {type:"string", value:string}
-type numberliteral = {type:"number", value:number}
-type booleanliteral = {type:"boolean", value:boolean}
-type nullliteral = {type:"null"| "undefined", value:null|undefined}
 
 
+// only well formed expressions
 type expression = 
-  | stringliteral | numberliteral | booleanliteral | nullliteral // "abc" | 123 | true | null
-  | identifier // x
+  // | stringliteral | numberliteral | booleanliteral | nullliteral // "abc" | 123 | true | null
+  | literal
   | lambda // (x)=>y
   | application // f(x)
   | const_ // x = 22; x + y
   | if_ // true?22:33
-  | binary // 1+2
-  | unary // -x
+  | binary<binaryop> // 1+2
+  | unary<unaryop> // -x
   | arr // [1,2,3]
   | obj // {a:1, b:2}
   | index // x.y | x[2]
 
+// any subexpression
+type ast <op extends astop, n extends number> = {type:op, arity: n, children: astnode[]}
+type astnode = ast<astop, number>
+
+type literalop = "string" | "number" | "boolean" | "null" | "identifier"
+type unaryop = "neg" | "!"
+type binaryop = "+" | "-" | "*" | "/" | "%" | "==" | "!=" | "<" | ">" | "<=" | ">=" | "&&" | "||" | "=>" | "app" | "idx"
+type tertiaryop = "?:" | "=;"
+type exop = unaryop | binaryop | tertiaryop | literalop | "[]" | "{}"
+type astop = exop | "spread" | "arglist"
+
+type unary <op extends unaryop> = ast<op, 1>
+type literal = {type:literalop, children:[], arity:0, value: string}
+type identifier = {type:"identifier"} & literal
+type binary <op extends binaryop> = ast<op, 2> |lambda | application
+type tertiary <op extends tertiaryop> = ast<op, 3>
 
 type lambda = {
-  type:'lambda',
-  params: identifier[],
-  body: expression
-}
+  type:"=>",
+  arity:2,
+  children:[expression|arglist|spread, expression]
+} 
 
 type application = {
-  type:'application',
-  operator: expression,
-  operands: expression[]
+  type:"app",
+  arity:2,
+  children:[expression, expression|arglist|spread]
 }
 
-type index = {
-  type:'index',
-  source: expression,
-  key:expression,
-}
+type const_ = tertiary<"=;">
+type if_ = tertiary<"?:">
+type index = binary<"idx">
 
-type const_ = {
-  type:'const',
-  binding: [identifier, expression],
-  body: expression
-}
+type composite<op extends astop> =ast<astop, -1>
+type arr = composite<"[]">
+type obj = composite<"{}">
+type arglist = composite<"arglist">
 
-type if_ = {
-  type:'if',
-  condition: expression,
-  then: expression,
-  els: expression
-}
+type spread = ast<"spread", 1>
 
-type operator = '+' | '-' | '*' | '/' | '%' | '==' | '!==' | '<' | '<=' | '>' | '>='
-type binary = {
-  type:'binary',
-  right: expression,
-  operator: operator,
-  left: expression
-}
-
-type unary = {
-  type:'unary',
-  operator: '!' | '-',
-  operand: expression
-}
-
-type spread = {type:'spread', value:expression} // ...x
-
-type arr = {type:'arr', value:(expression|spread)[]}
-type obj = {type:'obj', value:([stringliteral, expression]| spread)[]}
+const parse_expressions = (exp:(expression|any)[]) => exp.map(e=>e.type?e:ex(e)) as expression[]
+const newast = (type:astop, arity:number, ...children:(expression|any)[]):astnode => 
+  ({type, arity, children: (parse_expressions(children) as astnode[])})
 
 
-// binding power:
-// "*" = "/" > "+" = "-" > "==" > "=" = > "?"
+const lit = (t:literalop, v:string):literal=> ({type:t, children:[], arity:0, value:v})
+const ex = (value:expression|string|number|boolean|null):expression =>
+  (typeof value === "string")?lit("string", value):
+  (typeof value === "number")?lit("number", value.toString()):
+  (typeof value === "boolean")?lit("boolean", value.toString()):
+  (value == null)?lit("null", "null"): value
 
-const tokenize = (code:string):string[] =>
-  code.split(/([()])|(\s+)|(\/\/)|(\[|\])|(\{|\})|(\[|\])|(\=>)|(\;)|(\?)|(\==)|(\=)|(\,)|(\")|(\-)|(\+)|(\*)|(\!)|(\<)|(\.\.\.)|(\.)|(\:)/).filter(s=>s!==undefined).filter(s=>s.length>0)
+const idn = (value:string):identifier => lit("identifier", value) as identifier
 
-const parser = (code:string):expression => {
-  const toks = tokenize(code)
+const comp = (type:astop, ...children:any[]): composite<exop> => newast(type, -1, ...children) as composite<exop>
 
-  type parse<T> = (idx:number) => [T, number]
+const newunary = <op extends unaryop>(type:op, child:expression):unary<op> => newast(type, 1, child) as unary<op>
+const newbinary = <op extends binaryop>(type:op, left:expression, right:expression):binary<op> => newast(type, 2, left, right) as binary<op>
+const newtertiary = <op extends tertiaryop>(type:op, ...children:expression[]):tertiary<op> => newast(type, 3, ...children) as tertiary<op>
+const lam = (x:identifier|spread|arglist, y:expression) => ({type:"=>", arity:2, children:[x, y]} as lambda)
+const app = (f:expression, x:expression|identifier|spread|arglist) => ({type:"app", arity:2, children:[f, x]} as application)
+const con = (x:identifier, y:expression, z:expression):const_ => newtertiary("=;", x, y, z)
+const iff = (x:expression, y:expression, z:expression):if_ => newtertiary("?:", x, y, z)
+const idx = (x:expression, y:expression):index => newbinary("idx", x, y)
+const arr = (...children:any[]):arr => comp("[]", ...children)
+const obj = (...children:any[]):obj => comp("{}", ...children)
+const arg = (...children:expression[]):arglist => comp("arglist", ...children)
+const spr = (value:expression):spread => newast("spread", 1, value) as spread
+const alu = (op:binaryop, ...children:any):binary<binaryop> => newbinary(op, ...parse_expressions(children) as [expression, expression])
 
-  const parse_identifier:parse<identifier> = (idx)=>{
-    const tok = toks[idx]
-    if (tok === undefined) throw new Error('unexpected end of input')
-    if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(tok)) throw new Error(`expected identifier, got ${tok}`)
-    return [{type:"identifier", value:tok}, next(idx)]
-  }
-  const parse_literal:parse<expression> = (idx) =>{
-    const [tok, nidx] = parse_identifier(idx)
-    return  (toks[nidx] === '=>') ? parse_lam([tok], nidx):
-            (toks[nidx] === '=') ? parse_const(tok, nidx):
-            parse_continue(tok, nidx)
-  }
 
-  const parse_number:parse<numberliteral> = (idx) =>{
-    const tok = toks[idx]
-    if (tok === undefined) throw new Error('unexpected end of input')
-    if (!/^[0-9]+$/.test(tok)) throw new Error(`expected number, got ${tok}`)
-    return [{type:"number", value:parseInt(tok)}, next(idx)]
+type parsenode = astnode & {type: astop | "braces", children: astnode[]}
+
+// plan: parse code into naive parsenode, then rotate trees for operator precedence
+
+const binary_symbols = ["+", "-", "*", "/", "%", "==", "!=", "<", ">", "<=", ">=", "&&", "||", "=>"]
+const unary_symbols = ["-", "!", "..."]
+const tertiary_symbols = ["?", ":"]
+const group_symbols = ["(", "{", "["]
+const close_symbols = [")", "}", "]"]
+const symbols = [...binary_symbols, ...unary_symbols, ...tertiary_symbols, ...group_symbols, ...close_symbols]
+
+const symbolschars = "()+-*/%=!<>?:{}[].,"
+
+const naive_parse = (code:string)=>{
+
+  type test = (c:string)=>Boolean
+
+  const look = (test:(c:string)=>Boolean)=>(i:number):number => (code[i] && test(code[i]))?(look(test)(i+1)):i
+  const lookparse = (i:number, test:test, type:(literal|identifier)['type']):[literal|identifier, number]|undefined => {
+    const j = look(test)(i)
+    return i === j?undefined:[lit(type, code.slice(i,j)), nonw(j)]
   }
 
-  const parse_string:parse<stringliteral> = (idx) =>{
-    const tok = toks[idx]
-    if (tok === '"') return [{type:"string", value:''}, next(idx)]
-    if (tok === undefined) throw new Error('unexpected end of input')
-    const [rest, nidx] = parse_string(idx+1)
-    return [{type:"string", value:tok + rest.value}, nidx]
-  }
-
-  const parse_spread:parse<spread> = (idx) =>{
-    assertEq(toks[idx], '...', 'spread operator missing')
-    const [expr, nidx] = parse_expression(next(idx))
-    return [{type:'spread', value:expr}, nidx]
-  }
-
-  const parse_arr:parse<arr> = (idx) =>{
-    const tok = toks[idx]
-    if (tok === ']') return [{type:'arr',value:[]}, next(idx)]
-    if (tok === ',') return parse_arr(next(idx))
-    const [expr, nidx] = (tok === '...')? parse_spread(idx): parse_expression(idx)
-    const [rest, nnidx] = parse_arr(nidx)
-    return [{type:'arr', value:[expr, ...rest.value]}, nnidx]
-  }
-
-
-  const parse_obj:parse<obj> = (idx) =>{
-    const tok = toks[idx]
-    if (tok === '}') return [{type:'obj', value:[]}, next(idx)]
-    if (tok === ',') return parse_obj(next(idx))
-
-    const [item, nidx] = (tok === '...')? parse_spread(idx): (() =>{
-      const [key, nidx] = (tok[0] === '"')? parse_string(idx+1): (parse_identifier(idx) as [identifier,number])
-      if (toks[0] == '"') assertEq(toks[nidx], ':', 'expected :')
-      const [val, nnidx] = (toks[nidx] === ':')? parse_expression(next(nidx)): [key, nidx]
-      return [[{...key,type:"string"}, val], nnidx] as [[stringliteral, expression], number]
-    })()
-
-    const [rest, nnidx] = parse_obj(nidx)
-    return [{type:"obj",value:[item, ...rest.value]}as obj, nnidx]
-  }
-
-
-  const nextS = (idx:number):number => /\s+/.test(toks[idx]) ? nextS (idx+1) : idx
-  const next = (idx:number):number => /\s+/.test(toks[idx+1]) ? next (idx+1) : idx+1
-
-  const parse_parens = (idx:number):[expression, number] =>{
-    const [exprs, nidx] = parse_tup(idx)
-    if (toks[nidx] === '=>') return parse_lam(exprs, nidx)
-    assertEq(exprs.length, 1, 'cant have arg list outside of lambda')
-    return parse_continue(exprs[0], nidx)
-  }
-
-  const parse_continue = ( exp: expression, idx: number):[expression, number] =>
-    toks[idx] === '(' ? parse_continue(...parse_app(exp, idx)):
-    toks[idx] === '?' ? parse_if(exp, idx):
-    /(\+)|(\-)|(\*)|(\/)|(\%)|(==)|(!==)|(<)|(<=)|(>)|(>=)/.test(toks[idx]) ? parse_bin(exp, idx):
-    toks[idx] === '.' ? parse_continue(...parse_access(exp, idx)):
-    toks[idx] === '[' ? parse_continue(...parse_index(exp, idx)):
-    [exp, idx]
-
-
-  const parse_bin = (left:expression, idx:number):[binary, number] =>{
-    const operator = toks[idx] as operator
-    const nidx = next(idx)
-    const [right, nnidx] = parse_expression(nidx)
-    return [{type:"binary" ,left, operator, right}, nnidx]
-  }
-
-  const parse_un = (idx:number):[unary, number] =>{
-    const operator = toks[idx] as '!' | '-'
-    const [operand, nidx] = parse_expression(next(idx))
-    return [{type:"unary" ,operator, operand}, nidx]
-  }
-
-  const parse_tup = (idx: number):[expression[], number] =>{
-    if (toks[idx] === ',') return parse_tup(next(idx))
-    if (toks[idx] === ')') return [[], next(idx)]
-    const [expr, nidx] = parse_expression(idx)
-    const [rest, nnidx] = parse_tup(nidx)
-    return [[expr, ...rest], nnidx]
-  }
-
-  const parse_app = (fn:expression, idx:number):[application, number] =>{
-    assertEq(toks[idx], '(', 'expected (')
-    const [args, nidx] = parse_tup(next(idx))
-    return [{type:"application", operator:fn, operands:args}, nidx]
-  }
-
-  const parse_lam = (params:expression[], idx:number):[lambda, number] =>{
-    assertEq(toks[idx], '=>', 'expected =>')
-    const [body, nidx] = parse_expression(next(idx))
-    return [{type:"lambda", params, body}as lambda, nidx]
-  }
-
-  const parse_access = (source:expression, idx:number):[index, number] =>{
-    assertEq(toks[idx], '.', 'expected .')
-    const [key, nidx] = parse_identifier(next(idx))
-    return [{type:"index", source, key:{...key, type:"string"}}, nidx]
-  }
-
-  const parse_index = (source:expression, idx:number):[index, number] =>{
-    assertEq(toks[idx], '[', 'expected [')
-    const [key, nidx] = parse_expression(next(idx))
-    assertEq(toks[nidx], ']', 'expected ]')
-    return [{type:"index", source, key}, next(nidx)]
-  }
-
-  const parse_const= (id:identifier, idx:number):[const_, number] =>{
-    const nidx = idx
-    assertEq(toks[nidx], '=', 'expected =')
-    const [expr, nnidx] = parse_expression(next(nidx))
-    assertEq(toks[nnidx], ';', 'expected ";" at end of const')
-    const [body, nnnidx] = parse_expression(next(nnidx))
-    return [{type:"const",binding:[id, expr], body} as const, nnnidx] 
-  }
-
-  const parse_if = (cond: expression, idx:number):[if_, number] =>{
-    assertEq(toks[idx], '?', 'expected ?')
-    const [then, nidx] = parse_expression(next(idx))
-    assertEq(toks[nidx], ':', 'expected :')
-    const [els, nnidx] = parse_expression(next(nidx))
-    return [{type:"if",condition:cond, then, els:els}, nnidx]
-  }
-
-  const parse_comment = (idx:number):number =>
-    (toks[idx], toks[idx].includes('\n')? next(idx): parse_comment(idx+1))
-
-  const parse_expression: parse<expression> = (idx0=0) =>{
-    if (toks[idx0] == '//') return  parse_expression(parse_comment(idx0))
-    const idx = nextS(idx0)
-    const tok = toks[idx]
-    return (/[0-9]/.test(tok[0]))? parse_continue(...parse_number(idx)):
-    (/\"/.test(tok[0])) ? parse_continue(... parse_string(idx+1)):
-    (tok === '(') ? parse_continue(...parse_parens(idx+1)):
-    (/\[/.test(tok)) ? parse_continue(...parse_arr(idx+1)):
-    (/\{/.test(tok)) ? parse_continue(...parse_obj(idx+1)):
-    (/(\+)|(\-)|(\!)/.test(tok)) ? parse_continue(...parse_un(idx)):
-    (/^(true|false)$/.test(tok)) ? parse_continue({type:"boolean", value:tok === 'true'}, next(idx)):
-    parse_continue(...parse_literal(idx))
-
-  }
+  type parsed <T> = [T,number] | undefined | false
+  type tryparse <T> = (i:number)=>parsed<T>
   
-  const res = parse_expression(0)
-  assertEq(res[1], toks.length, 'unexpected end of input')
+  const match = (s:string)=>(i:number):Boolean => code.slice(i, i+s.length) === s
+  const matchparse = (i:number, s:string, t:literalop):parsed<expression>=>(match(s)(i) && [lit(t, s), nonw(i+s.length)])
+
+  const operator_weight = (op:expression["type"]):number =>
+    (op === "<")||(op === ">")||(op === "<=")||(op === ">=")||(op === "==")||(op === "!=")?7:
+  (op === "&&")|| (op === "||")?9:
+  (op === "+")||(op === "-") ?10:
+  (op === "/")|| (op === "%")|| (op === "*")?11:
+  (op === "idx") || op==="!" ?12:
+  (op === "app")||(op === "=>")||(op =="?:") || (op=="=;") ||(op=="spread")?13 : -1
+
+  
+  const parse_atom:tryparse<expression> = (i:number) => {
+    return lookparse(i, c=>c<='9' && c>='0', "number")
+    || matchparse(i, "true", "boolean")
+    || matchparse(i, "false", "boolean")
+    || matchparse(i, "null", "null")
+    || lookparse(i, c=>(c<='z' && c >='a') || (c<='Z' && c >='A'),"identifier")
+    || (code[i] === '"' && lookparse(i+1, c=>c!='"', "string"))
+    || (code[i] === "'" && lookparse(i+1, c=>c!="'", "string"))
+    || undefined
+  }
+
+
+  // const parse_group
+
+  // const parse_tertiary
+
+  const parse_continue = ([left, i]:[expression, number]):parsed<expression> => {
+    log("p cont", left,"|"+ code.slice(i))
+  
+    const symend = look(c=>symbolschars.includes(c))(i)
+    const next_symbol = log("NS",code.slice(i, symend))
+    if (!next_symbol.length) return [left, i]
+    const ni = nonw(symend)
+    if (binary_symbols.includes(next_symbol)){
+      const exr = parse_expression(ni)
+      if (!exr) return undefined
+      const [right, j] = exr
+      return parse_continue([newbinary(next_symbol as binaryop, left, right), j])
+    }
+    return [left, i]
+  }
+
+  const parse_expression = (i:number):parsed<expression> => {
+    log("pe", code.slice(i))
+    code.slice(i)
+
+    const start = log("start",parse_atom(i))
+
+    if (!start) return undefined
+    return parse_continue(start)
+    // return [start[0], nextc(start[1])]
+  }
+
+  const nonw = (i:number):number=>code[i] == undefined || code[i].trim().length?i:nonw(i+1)
+  const res = parse_expression(nonw(0))
+  if (!res) throw new Error("cant parse"+ code)
   return res[0]
+
 }
 
-type primitive = identifier | numberliteral | stringliteral | booleanliteral | nullliteral
-
-const prim = (type: primitive['type'] , value:any):primitive => ({type:type, value})
-const iden = (value:string):identifier => prim("identifier", value) as identifier
-const strn = (value:string):stringliteral => prim("string", value) as stringliteral
-const fn = (params:identifier[], body:expression):lambda => ({type:"lambda", params, body})
-const app = (operator:expression, operands:expression[]):application => ({type:"application", operator, operands})
-const bin = (operator:operator, left:expression, right:expression):binary => ({type:"binary", operator, left, right})
-const un = (operator:'!'|'-', operand:expression):unary => ({type:"unary", operator, operand});
-const num = (value:number) => prim("number", value) as numberliteral
-
-try {
-  assertEq(parser("x"), prim("identifier", "x"), "compile x")
-  assertEq(parser('true'), prim("boolean", true), "compile true")
-  assertEq(parser('true_y'), prim("identifier", "true_y"), "compile true_y")
-  assertEq(parser(" 22"), prim("number", 22), "compile 22")
-  assertEq(parser('"22"'), prim("string", "22"), "compile '22'")
-  assertEq(parser('"hello world"'), prim("string", "hello world"), "compile 'hello world'")
-
-  assertEq(parser("()=>\n22"), fn([], prim("number", 22)), "compile ()=>22")
-  assertEq(parser("e=>22"), fn([iden('e')], prim("number", 22) as expression), "compile e=>22")
-  assertEq(parser("(()=>\n22) ()"), app(fn([], prim("number", 22)), []), "compile (()=>22) ()")
-  assertEq(parser("fn(33)"), app(iden('fn'), [prim("number", 33)]), "compile fn(33)")
-  assertEq(parser("( fn ) ( )"), app(iden('fn'), []), "compile (fn)()")
-  assertEq(parser("fn(33, 44)"), app(iden('fn'), [prim("number", 33), prim("number", 44)]), "compile fn(33,44)")
-  assertEq(parser("fn(x)(3)"), app(app(iden('fn'), [iden('x')]), [prim("number", 3)]), "compile fn(x)(3)")
-
-  assertEq(parser("slice([], 2)"), app(iden('slice'), [{type:"arr", value:[]}, {type:"number", value:2}]), "compile array indexing")
-
-  assertEq(parser("x = 22 ; x"), {type:"const", binding:[iden('x'), prim("number", 22)], body:iden('x')}, "compile let x=22 in x")
-  assertEq(parser("x = fn ; (fn2) (fn3)"), {type:"const", binding:[iden('x'), iden('fn')], body:app(iden('fn2'), [iden('fn3')])}, "compile let x=fn in (fn2)(fn3)")
-
-  assertEq(parser("true ? 22 : 33"), {type:"if", condition:prim("boolean", true), then:prim("number", 22), els:prim("number", 33)}, "compile if true then 22 else 33")
-  assertEq(parser("true ? 22 : false ? 33 : 44"), {type:"if", condition:prim("boolean", true), then:prim("number", 22), els:{type:"if", condition:prim("boolean", false), then:prim("number", 33), els:prim("number", 44)}}, "compile if true then 22 else if false then 33 else 44")
-  assertEq(parser("2 ? 3 : 4"), {type:"if", condition:prim("number", 2), then:prim("number", 3), els:prim("number", 4)}, "compile if 2 then 3 else 4")
-
-  assertEq(parser("1 + 2"), bin("+", prim("number", 1), prim("number", 2)), "compile 1+2")
-  assertEq(parser('"hello" + "world"'), bin("+", prim("string", "hello"), prim("string", "world")), "compile 'hello'+'world'")
-  assertEq(parser("1 * 2"), bin("*", prim("number", 1), prim("number", 2)), "compile 1*2")
-  assertEq(parser("1 % 2"), bin("%", prim("number", 1), prim("number", 2)), "compile 1%2")
-  assertEq(parser("1 == 2"), bin("==", prim("number", 1), prim("number", 2)), "compile 1==2")
-  assertEq(parser("1 + 2 + 4"), bin("+", prim("number", 1), bin("+", prim("number", 2), prim("number", 4))), "compile 1+2+4")
-
-  // assertEq(parser("1 + 2 * 3"), bin("+", num(1), bin("*", num(2), num(3))), "weighting of binary operators wrong")
-  // assertEq(parser("1 * 2 + 3"), bin("+", bin("*", num(1), num(2)), num(3)), "weighting of binary operators wrong")
-
-  assertEq(parser("-1"), un("-", prim("number", 1)), "compile -1")
-  assertEq(parser("!1"), un("!", prim("number", 1)), "compile !1")
-  assertEq(parser("!!1"), un("!", un("!", prim("number", 1))), "compile !!1")
-  assertEq(parser("(!(!2))"), un("!", un("!", prim("number", 2))), "compile !!1")
-
-  assertEq(parser("[1,2 ,3 ]"), {type:"arr", value:[prim("number", 1), prim("number", 2), prim("number", 3)]}, "compile [1,2,3]")
-  assertEq(parser(" [ 1,2 ,3 ]"), {type:"arr", value:[prim("number", 1), prim("number", 2), prim("number", 3)]}, "compile [1,2,3]")
-  assertEq(parser("[...x, ...y ,]"), {type:"arr", value:[{type:"spread", value:iden("x")}, {type:"spread", value:iden("y")}]}, "compile [...x, ...y]")
-
-  assertEq(parser("{}"), {type:"obj", value:[]}, "compile {}")
-  assertEq(parser("{a:1}"), {type:"obj", value:[[strn("a"), prim("number", 1)]]}, "compile {a:1}")
-  assertEq(parser("{a:1, b:2,}"), {type:"obj", value:[[strn("a"), prim("number", 1)], [strn("b"), prim("number", 2)] ]}, "compile {a:1, b:2}")
-  assertEq(parser('{a:1, "bonobo":(3+4), c: !x, val, ...rest}'), {type:"obj", value:[[strn("a"), prim("number", 1)], [strn( "bonobo"), bin("+", prim("number", 3), prim("number", 4))], [strn("c"), un("!", iden("x"))], [strn("val"),iden("val")], {type:"spread", value:iden("rest")}]}, "compile {a:1, 'bonobo':3+4, c:!x, val, ...rest}")
-
-  assertEq(parser("e.x"), {type:"index", source:{type:"identifier", value:"e"}, key:{type:"string", value:"x"}}, "compile e.x")
-  assertEq(parser('e["x"]'), {type:"index", source:{type:"identifier", value:"e"}, key:{type:"string", value:"x"}}, "compile e.x")
-  assertEq(parser('e[x]'), {type:"index", source:{type:"identifier", value:"e"}, key:{type:"identifier", value:"x"}}, "compile e.x")
-  assertEq(parser('e.x.y'), {type:"index", source:{type:"index", source:{type:"identifier", value:"e"}, key:{type:"string", value:"x"}}, key:{type:"string", value:"y"}}, "compile e.x.y")
-
-  assertEq(parser("x = 22; x"), {type:"const", binding:[iden("x"), prim("number", 22)], body:iden("x")}, "compile x=22;x")
-  assertEq(parser("x = 22; y = 33; x"), {type:"const", binding:[iden("x"), prim("number", 22)], body:{type:"const", binding:[iden("y"), prim("number", 33)], body:iden("x")}}, "compile x=22;y=33;x")
-  assertEq(parser("[x=22;x]"), {type:"arr", value:[{type:"const", binding:[iden("x"), prim("number", 22)], body:iden("x")}]}, "compile [x=22;x]")
-  assertEq(parser("{x: x=22;x}"), {type:"obj", value:[[strn("x"), {type:"const", binding:[iden("x"), prim("number", 22)], body:iden("x")}] ]}, "compile {x: x=22;x}")
-
-  assertEq(parser("x=2;\nx"), {type:"const", binding:[iden("x"), prim("number", 2)], body:iden("x")}, "compile x=2;\nx")
-  assertEq(parser("x=2;//end line comment \ny=3;\n//new line comment \n x+y"), {type:"const", binding:[iden("x"), prim("number", 2)], body:{type:"const", binding:[iden("y"), prim("number", 3)], body:bin("+", iden("x"), iden("y"))}}, "compile x=2;y=3;x+y")
-
-  assertErr(()=>{parser('x y')}, 'shouldnt accept x y')
-  assertErr(()=>{parser('x.[y]')}, 'shouldnt accept x.[y]')
-  assertErr(()=>{parser('x[.y]')}, 'shouldnt accept x[.y]')
-  assertErr(()=>{parser('x[]')}, 'shouldnt accept x[]')
-  assertErr(()=>{parser('x[1 2]')}, 'shouldnt accept x[1 2]')
-  assertErr(()=>{parser('x[1,2]')}, 'shouldnt accept x[1,2]')
-  assertErr(()=>{parser('x"2"')}, 'shouldnt accept x"2"')
-
-}catch(e){
-  console.error(e)
+const testParse = (code:string, expected: any)=>{
+  try{
+    assertEq(naive_parse(code), ex(expected), " in parsing " + code)
+  }catch(e){
+    console.error(e)
+  }
 }
 
 
-const compile_js = (ast:expression|spread):string =>{
-  
-  return ast.type === "identifier" ? ast.value:
-  ast.type == "number" || ast.type == "string" || ast.type == "boolean" || ast.type == "null" ? JSON.stringify((ast as any).value):
-  ast.type == "undefined" ? "undefined":
-  ast.type == "arr" ? `[${(ast as arr).value.map(compile_js).join(",")}]`:
-  ast.type == "spread" ? `...${compile_js(ast.value)}`:
-  ast.type == "obj" ? `({${(ast as obj).value.map(p=>p instanceof Array? `"${(p[0]).value}":${compile_js(p[1])}`: compile_js(p)).join(",")}})`:
-  ast.type == "application" ? `${compile_js(ast.operator)}(${ast.operands.map(compile_js).join(",")})`:
-  ast.type == "binary" ? `(${compile_js(ast.left)} ${ast.operator} ${compile_js(ast.right)})`:
-  ast.type == "unary" ? `(${ast.operator}${compile_js(ast.operand)})`:
-  ast.type == "if" ? `(${compile_js(ast.condition)}?${compile_js(ast.then)}:${compile_js(ast.els)})`:
-  ast.type == "lambda" ? `(${ast.params.map(compile_js).join(",")})=>${compile_js(ast.body)}`:
-  ast.type == "const" ? `(()=>{const ${compile_js(ast.binding[0])} = ${compile_js(ast.binding[1])}; return ${compile_js(ast.body)}})()`:
-  ast.type == "index" ? `${compile_js(ast.source)}[${compile_js(ast.key)}]`:
-  '<unknown>'
-}
 
 
-const cpjs = (x:string)=>compile_js(parser(x))
-const checkdiff = (source:string, result:string) => assertEq(cpjs(source), result, `compiler ${source}`)
-const checkprim = (x:string) => checkdiff(x,x);
+testParse("14 ", 14)
+testParse("abc", idn("abc"))
+testParse('"hello"', "hello")
+testParse("true", true)
 
-[
-  "x", "22", '"hello world"', "true", "falsey",
-  "[1,2,3]", "[1,2,...x]",
-  '({"e":22})',
-  "fn(22)", "fn(22,33)", "fn(x)(3)", "(!x)", "(!fn(22))", "(2 + 3)",
-  "(1 + 2)", "(1 * 2)", "(1 % 2)", "(1 == 2)", "(-1)", "(!1)", "(!(!1))",
-  "(true?22:33)",
-  "(x)=>22", "(a,b)=>(a + b)",
-].map(checkprim)
-
-
-checkdiff('{"key":x,t}', '({"key":x,"t":t})')
-checkdiff("{a}", '({"a":a})')
-checkdiff("{...a}", '({...a})')
-checkdiff("x = 22; x", '(()=>{const x = 22; return x})()')
-checkdiff('{"u":x = 3; x}', '({"u":(()=>{const x = 3; return x})()})')
-
-
-const checkeval = (source:string, result:any) => {const js = cpjs(source);assertEq(eval(js), result, ` eval ${source} => ${js}`)}
-
-
-checkeval('22', 22)
-checkeval('true', true)
-checkeval('x=2;x', 2)
-checkeval('{"u":x = 3; x}', {u:3})
-checkeval('{"e":x = 44; x}', {e:44})
-checkeval('[1, x=2; x*2]', [1,4])
-checkeval('x = 22; x', 22)
-checkeval(`x = 22;\ny =\n 33;x + y`, 55)
-
-
-const runf = (s:string) => eval(cpjs(s))
-
-log(runf(`
-  _=log("hello!");
-  add = (a,b)=>a+b;
-  fib = n=>
-  (n<2)?
-    1:
-    fib(n-1)+fib(n-2);
-  // fib(0)
-  // fib(40)
-  fastfib = n =>
-  _fib = (a,b,c) => c?_fib(b,a+b,c-1):a;
-  _fib(1,1,n);
-  a = 44;
-  x = {a:1,x:a};
-  // [x.a,x.x,3]
-  y = {...x, e:22};
-
-  {...x, x:44, ...y}
-`))
-
-
-log(cpjs("3 + 4 * 5"))
-log(cpjs("3 * 4 + 5"))
-log(cpjs("2>1?3:4"))
-
-
-export {}
+testParse("11+2", alu("+", 11,2))
+testParse("1+2 + 3", alu("+", 1, alu("+", 2,3)))
 
