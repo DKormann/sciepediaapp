@@ -1,7 +1,5 @@
 import { assertEq, assertErr, log, stringify } from "./helpers"
 
-
-
 // only well formed expressions
 type expression = 
   // | stringliteral | numberliteral | booleanliteral | nullliteral // "abc" | 123 | true | null
@@ -49,7 +47,7 @@ type const_ = tertiary<"=;">
 type if_ = tertiary<"?:">
 type index = binary<"idx">
 
-type composite<op extends astop> =ast<astop, -1>
+type composite<op extends astop> =ast<op, -1>
 type arr = composite<"[]">
 type obj = composite<"{}">
 type arglist = composite<"arglist">
@@ -72,18 +70,18 @@ const idn = (value:string):identifier => lit("identifier", value) as identifier
 
 const comp = (type:astop, ...children:any[]): composite<exop> => newast(type, -1, ...children) as composite<exop>
 
-const newunary = <op extends unaryop>(type:op, child:expression):unary<op> => newast(type, 1, child) as unary<op>
-const newbinary = <op extends binaryop>(type:op, left:expression, right:expression):binary<op> => newast(type, 2, left, right) as binary<op>
-const newtertiary = <op extends tertiaryop>(type:op, ...children:expression[]):tertiary<op> => newast(type, 3, ...children) as tertiary<op>
+const newunary = <op extends unaryop>(type:op, child:any):unary<op> => newast(type, 1, child) as unary<op>
+const newbinary = <op extends binaryop>(type:op, left:any, right:any):binary<op> => newast(type, 2, left, right) as binary<op>
+const newtertiary = <op extends tertiaryop>(type:op, ...children:any[]):tertiary<op> => newast(type, 3, ...children) as tertiary<op>
 const lam = (x:identifier|spread|arglist, y:expression) => ({type:"=>", arity:2, children:[x, y]} as lambda)
-const app = (f:expression, x:expression|identifier|spread|arglist) => ({type:"app", arity:2, children:[f, x]} as application)
-const con = (x:identifier, y:expression, z:expression):const_ => newtertiary("=;", x, y, z)
-const iff = (x:expression, y:expression, z:expression):if_ => newtertiary("?:", x, y, z)
-const idx = (x:expression, y:expression):index => newbinary("idx", x, y)
+const app = (f:any, x:any|identifier|spread|arglist) => ({type:"app", arity:2, children:[f, x]} as application)
+const con = (x:any, y:any, z:any):const_ => newtertiary("=;", x, y, z)
+const iff = (x:any, y:any, z:any):if_ => newtertiary("?:", x, y, z)
+const idx = (x:any, y:any):index => newbinary("idx", x, y)
 const arr = (...children:any[]):arr => comp("[]", ...children)
 const obj = (...children:any[]):obj => comp("{}", ...children)
-const arg = (...children:expression[]):arglist => comp("arglist", ...children)
-const spr = (value:expression):spread => newast("spread", 1, value) as spread
+const arg = (...children:any[]):arglist => comp("arglist", ...children)
+const spr = (value:any):spread => newast("spread", 1, value) as spread
 const alu = (op:binaryop, ...children:any):binary<binaryop> => newbinary(op, ...parse_expressions(children) as [expression, expression])
 
 
@@ -93,12 +91,20 @@ type parsenode = astnode & {type: astop | "braces", children: astnode[]}
 
 const binary_symbols = ["+", "-", "*", "/", "%", "==", "!=", "<", ">", "<=", ">=", "&&", "||", "=>"]
 const unary_symbols = ["-", "!", "..."]
-const tertiary_symbols = ["?", ":"]
+const tertiary_symbols = ["?", "="]
 const group_symbols = ["(", "{", "["]
 const close_symbols = [")", "}", "]"]
 const symbols = [...binary_symbols, ...unary_symbols, ...tertiary_symbols, ...group_symbols, ...close_symbols]
 
-const symbolschars = "()+-*/%=!<>?:{}[].,"
+const symbolschars = "()+-*/%=!<>?:{}[].,;"
+
+const operator_weight = (op:expression["type"]):number =>
+  (op === "<")||(op === ">")||(op === "<=")||(op === ">=")||(op === "==")||(op === "!=")?7:
+(op === "&&")|| (op === "||")?9:
+(op === "+")||(op === "-") ?10:
+(op === "/")|| (op === "%")|| (op === "*")?11:
+(op === "idx") || op==="!" ?12:
+(op === "app")||(op === "=>")||(op =="?:") || (op=="=;") ||(op=="spread")?13 : -1
 
 const naive_parse = (code:string)=>{
 
@@ -115,15 +121,6 @@ const naive_parse = (code:string)=>{
   
   const match = (s:string)=>(i:number):Boolean => code.slice(i, i+s.length) === s
   const matchparse = (i:number, s:string, t:literalop):parsed<expression>=>(match(s)(i) && [lit(t, s), nonw(i+s.length)])
-
-  const operator_weight = (op:expression["type"]):number =>
-    (op === "<")||(op === ">")||(op === "<=")||(op === ">=")||(op === "==")||(op === "!=")?7:
-  (op === "&&")|| (op === "||")?9:
-  (op === "+")||(op === "-") ?10:
-  (op === "/")|| (op === "%")|| (op === "*")?11:
-  (op === "idx") || op==="!" ?12:
-  (op === "app")||(op === "=>")||(op =="?:") || (op=="=;") ||(op=="spread")?13 : -1
-
   
   const parse_atom:tryparse<expression> = (i:number) => {
     return lookparse(i, c=>c<='9' && c>='0', "number")
@@ -136,43 +133,84 @@ const naive_parse = (code:string)=>{
     || undefined
   }
 
-
-  // const parse_group
-
-  // const parse_tertiary
+  const parse_operator = (i:number):parsed<string> =>{
+    const j = look(c=>symbolschars.includes(c))(i)
+    return (i == j)?undefined : [code.slice(i,j), nonw(j)]
+  }
 
   const parse_continue = ([left, i]:[expression, number]):parsed<expression> => {
-    log("p cont", left,"|"+ code.slice(i))
-  
-    const symend = look(c=>symbolschars.includes(c))(i)
-    const next_symbol = log("NS",code.slice(i, symend))
-    if (!next_symbol.length) return [left, i]
-    const ni = nonw(symend)
+    const po = parse_operator(i)
+    if (!po) return [left, i]
+    const [next_symbol, ni] = po
+    const exn = parse_expression(ni)
+    if (!exn) return [left, i]
+    const [next, j] = exn
     if (binary_symbols.includes(next_symbol)){
-      const exr = parse_expression(ni)
-      if (!exr) return undefined
-      const [right, j] = exr
-      return parse_continue([newbinary(next_symbol as binaryop, left, right), j])
+      return parse_continue([newbinary(next_symbol as binaryop, left, next), j])
+    }
+    if (next_symbol == ".") 
+      return assertEq(next.type, "identifier", "expected identifier"),
+      parse_continue([idx(left,{...next, type:"string"}), j])
+    if (next_symbol == "[") {
+      const closer = parse_operator(j)
+      return closer && assertEq(closer[0], "]", "expected ]"),
+      parse_continue([idx(left, next), (closer as [string, number])[1]])
+    }
+    if (tertiary_symbols.includes(next_symbol)){
+      const op2 = next_symbol=='='?';':':'
+      const po = parse_operator(j)
+      if (!po) throw new Error("expected \""+ op2+"\""+ code.slice(j))
+      const [ns2, nni] = po
+      if (ns2 !== op2) new Error("expected \""+ op2+"\", found: \""+ ns2 + "\"")
+      const exr = parse_expression(nni)
+      if (!exr) throw new Error("cant parse");
+      const [right, k] = exr
+      return parse_continue([newtertiary(next_symbol+ns2 as tertiaryop, left, next, right), k])
     }
     return [left, i]
   }
 
+  const parse_group = ([open, i]:[string, number]):[composite<astop>,number] => {
+    const item = parse_expression(i)
+    const close = close_symbols[group_symbols.indexOf(open)]
+    const type = open=="["?"[]":open=="{"?"{}":"arglist" as astop
+    if (item){
+      const [next, j] = item
+      const comm = parse_operator(j)
+      if (!comm) throw new Error('expected "," or '+ close)
+      const [comma, k] = comm
+      if (comma === ",") {
+        const [rest, kn] = parse_group([open, k])
+        return [comp(type, next, ...rest.children), kn]
+      }
+      if (comma === close) return [comp(type, next), k]
+    } else {
+      const closer = parse_operator(i)
+      if (!closer || closer[0] !== close) throw new Error("expected "+ close)
+      return [comp(type), closer[1]]
+    }
+    throw new Error("cant parse")
+
+  }
   const parse_expression = (i:number):parsed<expression> => {
-    log("pe", code.slice(i))
-    code.slice(i)
 
-    const start = log("start",parse_atom(i))
+    const open = parse_operator(i)
+    if (open){
+      if (!group_symbols.includes(open[0])) return undefined
+      return parse_group(open as [string, number]) as parsed<expression>
+    }
 
+    const start = parse_atom(i)
     if (!start) return undefined
-    return parse_continue(start)
-    // return [start[0], nextc(start[1])]
+    const c= parse_continue(start)
+
+    return c
   }
 
   const nonw = (i:number):number=>code[i] == undefined || code[i].trim().length?i:nonw(i+1)
   const res = parse_expression(nonw(0))
   if (!res) throw new Error("cant parse"+ code)
   return res[0]
-
 }
 
 const testParse = (code:string, expected: any)=>{
@@ -183,9 +221,6 @@ const testParse = (code:string, expected: any)=>{
   }
 }
 
-
-
-
 testParse("14 ", 14)
 testParse("abc", idn("abc"))
 testParse('"hello"', "hello")
@@ -193,4 +228,19 @@ testParse("true", true)
 
 testParse("11+2", alu("+", 11,2))
 testParse("1+2 + 3", alu("+", 1, alu("+", 2,3)))
+testParse("1 == 2 %  44 ", alu("==", 1, alu("%", 2, 44)))
+
+testParse("1?2:3", iff(1,2,3))
+testParse("x=2;3", con(idn("x"),2,3))
+testParse("x = 2 ; 3 * x", con(idn("x"),2,alu("*",3,idn("x"))))
+
+testParse("x.y", idx(idn("x"), "y"))
+testParse("x[y]", idx(idn("x"), idn("y")))
+
+testParse("x=>y", lam(idn("x"), idn("y")))
+
+testParse("[1,2,3]", arr(1,2,3))
+testParse("[1,3+4]", arr(1,alu("+",3,4)))
+
+// testParse("x.y.z", idx(idx(idn("x"), "y"), "z"))
 
