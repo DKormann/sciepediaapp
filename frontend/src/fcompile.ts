@@ -117,6 +117,10 @@ const naive_parse = (code:string)=>{
   const match = (s:string)=>(i:number):Boolean => code.slice(i, i+s.length) === s
   const matchparse = (i:number, s:string, t:literalop):parsed<expression>=>(match(s)(i) && [lit(t, s), nonw(i+s.length)])
   
+  const parse_until_char = (i:number, c:string, type:astop):parsed<literal>=>{
+    const j = code.indexOf(c, i)
+    return j === -1?undefined:[lit(type as literal['type'], code.slice(i,j)), nonw(j)+1]
+  }
 
   const parse_atom:tryparse<expression> = (i:number) => {
     return lookparse(i, c=>c<='9' && c>='0', "number")
@@ -124,8 +128,8 @@ const naive_parse = (code:string)=>{
     || matchparse(i, "false", "boolean")
     || matchparse(i, "null", "null")
     || lookparse(i, c=>(c<='z' && c >='a') || (c<='Z' && c >='A'),"identifier")
-    || (code[i] === '"' && lookparse(i+1, c=>c!='"', "string"))
-    || (code[i] === "'" && lookparse(i+1, c=>c!="'", "string"))
+    || (code[i] === '"' && parse_until_char(i+1, '"', "string"))
+    || (code[i] === "'" && parse_until_char(i+1, "'", "string"))
     || undefined
   }
 
@@ -149,6 +153,11 @@ const naive_parse = (code:string)=>{
       const closer = parse_operator(j)
       return closer && assertEq(closer[0], "]", "expected ]"),
       parse_continue([idx(left, next), (closer as [string, number])[1]])
+    }
+    if (next_symbol == "("){
+      const closer = parse_operator(j)
+      return closer && assertEq(closer[0], ")", "expected )"),
+      parse_continue([app(left, next), (closer as [string, number])[1]])
     }
     if (tertiary_symbols.includes(next_symbol)){
       const op2 = next_symbol=='='?';':':'
@@ -226,9 +235,14 @@ const naive_parse = (code:string)=>{
     return parse_continue(start)
   }
 
-  const nonw = (i:number):number=>code[i] == undefined || code[i].trim().length?i:nonw(i+1)
+  const nonw = (i:number):number=> code[i] == undefined? i:
+    code[i] == '/' && code[i+1] == '/' ? nonw(code.indexOf('\n', i+1)):
+    code[i] == '/' && code[i+1] == '*' ? nonw(code.indexOf('*/', i+1)+2):
+    code[i].trim().length ? i:nonw(i+1)
+
   const res = parse_expression(nonw(0))
   if (!res) throw new Error("cant parse"+ code)
+  if (res[1] !== code.length) throw new Error("unparsed "+ code.slice(res[1]))
   return res[0]
 }
 
@@ -282,7 +296,8 @@ const compile = (ast:astnode):string =>{
   ast.type == "[]" ? `[${ast.children.map(compile).join(",")}]`:
   ast.type == "idx" ? `(${compile(ast.children[0])}[${compile(ast.children[1])}])`:
   ast.type == "?:" ? `(${compile(ast.children[0])}?${compile(ast.children[1])}:${compile(ast.children[2])})`:
-  ast.type == "=;" ? `(${compile(ast.children[0])}=${compile(ast.children[1])};${compile(ast.children[2])})`:
+  ast.type == "=;" ? `(()=>{const ${compile(ast.children[0])}=${compile(ast.children[1])};return ${compile(ast.children[2])}})()`:
+  ast.type == "app" ? `(${compile(ast.children[0])}(${compile(ast.children[1])}))`:
   ast.arity == 2 ? `(${ast.children.map(compile).join(ast.type)})`:
    `(${ast.type} ${ast.children.map(compile).join(",")})`
 
@@ -374,7 +389,6 @@ const testCompile = (code:string, expected: string)=>{
   }catch(e){
 
     console.error("compiliing "+code+ " =>\n"+ res + " !=\n"+ expected)
-    
   }
 }
 
@@ -392,17 +406,28 @@ testCompile("x=>x.y", '(x=>(x["y"]))')
 testCompile("1 > 2 ? 3 : 4", '((1>2)?3:4)')
 testCompile("1>2?3:4", '((1>2)?3:4)')
 
+testCompile('fn(22)', '(fn(22))')
+testCompile('"a"+"b"', '("a"+"b")')
+testCompile('a.b', '(a["b"])')
 
 
 
-let expr = (s:string) => log(eval(compile(rearange(naive_parse(s)))))
+let expr = (s:string) => log(eval(
+  // log
+  (compile(rearange(naive_parse(s))))))
 
 
-expr(`  
+expr(`
 
+x=22;
+y = 33;
 
-1>2?3:"hello"
+fib=n=>22;
 
+fib=n=>33;
 
+fib(44)
 
 `)
+
+
