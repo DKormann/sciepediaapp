@@ -35,11 +35,6 @@ max = (a, b) => a > b ? a : b;
 
 - infix variable assigment - you can assign variables in the middle of any expression
 
-```javascript
-x = 1;
-y = x + 1;
-console.log(y);
-```
 
 ```javascript
 obj = {a: 1, mx: 
@@ -58,3 +53,9 @@ obj = {a: 1, mx:
   z + 1
 ] // this array will have to values: x + y and z + 1. x, y and z are local to the array not global
 ```
+
+
+### tradeoffs:
+- you dont need curly braces for anything except objects
+- semicolons specifically for variable assignment
+- code becomes dense but concise and fast to write
