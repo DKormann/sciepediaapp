@@ -41,10 +41,9 @@ type Rendered = Pelement & {
 
 const islink = (s:string) => s.startsWith('#') && s.length > 1
 
-
 const build = (r:Root, path:Path, indent:number):Pelement[] => {
   const node = getData(r, path)
-  const tit = node.path.join('.s')
+  const tit = node.path.join('.')
   return [
     {content:tit,path,indent,is_title:true, children:[], cursor:-1},
     ...node.Content.split('\n').map(c=>({content:c, indent, path, children:[], cursor:-1}))
@@ -80,7 +79,7 @@ const toggleLink = (lnum:number, start:number, end:number):Update=>s0=>{
   return setStateVar('p',[...prev,
     ... (scope <= 0)?[
       {...target, content:target.content.slice(0,end), el:undefined},
-      ...build(s.r, [link.slice(1)], target.indent+1).map(render),
+      ...build(s.r, link.slice(1).split("."), target.indent+1).map(render),
       {...target, content:target.content.slice(end), el:undefined},
       ...rest
     ]:[
@@ -111,7 +110,7 @@ const setLine = (line:number|[number, number], ...lines: Pelement[]):Update=>s=>
 
     s=>setStateVar("r", setData(s.r,
       child(lines[0].path.join("."),
-      log("newtext", seekPage(start,s).slice(1).map(p=>p.content).join("\n")))))(s),
+      seekPage(start,s).slice(1).map(p=>p.content).join("\n"))))(s),
 
     setStateVar('cursor', focusline == -1? s.cursor: start+focusline)
   )(s)
@@ -144,12 +143,9 @@ const findChar = (p:Rendered, x:number) =>{
 const seekPage = (pn:number, s:State) =>{
   const t = s.p[pn]
   const fs = pn-s.p.slice(0,pn).reverse().findIndex(p=>p.is_title && p.indent ==t.indent)-1
-  assertEq(s.p[log(fs)].is_title, true, ' no title')
+  assertEq(s.p[fs].is_title, true, ' no title')
   const es = s.p.slice(pn).findIndex(p=>p.indent<t.indent)
-
-  const res =  s.p.slice(fs, es>-1?es+pn:undefined)
-  log(fs,es)
-  log(res)
+  const res =  s.p.slice(fs, es>-1?es+pn:undefined).filter(p=>p.indent==t.indent)
   return res
 }
 
@@ -178,7 +174,7 @@ const cursorMove=(dl:number, dc:number):Update => s=>{
 }
 
 const pushhist:Update = s=> (
-  localStorage.setItem('root', stringify(log(s.r))),
+  // localStorage.setItem('root', stringify(log(s.r))),
   log('push'),(last (s.hist) == undefined || uuid(s).id != 
 uuid(last(s.hist)).id
 ) ?setStateVar('hist', [...s.hist.slice(-10), s])(s):(log('no change'), s))
@@ -247,7 +243,7 @@ export const view = (putHTML:(el:HTMLElement)=>void) => {
                 const [p1,p2] = ps
                 return (p2.cursor>0 || p1.indent!=p2.indent)?
                 [p1, {...p2, content:p2.content.slice(0,Math.max(0,p2.cursor-speed))+p2.content.slice(p2.cursor), cursor:Math.max(0,p2.cursor-speed)}]
-                :[{...p1, content:p1.content.slice(0,-speed)+p2.content, cursor:p1.content.length+1-speed}]
+                :[{...p1, content:p1.content  +p2.content, cursor:p1.content.length+1-speed}]
               }
             })(pushhist(s)))
           }
