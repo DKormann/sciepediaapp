@@ -59,3 +59,26 @@ obj = {a: 1, mx:
 - you dont need curly braces for anything except objects
 - semicolons specifically for variable assignment
 - code becomes dense but concise and fast to write
+
+
+### example:
+
+```javascript
+
+// fibonacci
+
+fib = n => 
+  n < 2 ?
+  n :
+  fib(n - 1) + fib(n - 2);
+
+_ = console.log(fib(10));
+
+fast_fib = n => 
+  _fib = (a, b, n) =>
+    n == 0 ?
+    a :
+    _fib(b, a + b, n - 1);
+  _fib(0, 1, n);
+
+console.log(fast_fib(100))

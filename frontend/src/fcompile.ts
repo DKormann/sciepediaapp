@@ -413,21 +413,29 @@ testCompile('a.b', '(a["b"])')
 
 
 let expr = (s:string) => log(eval(
-  // log
+  log
   (compile(rearange(naive_parse(s))))))
 
 
 expr(`
 
-x=22;
-y = 33;
+fib = (n) => 
+  n < 2 ?
+  n:
+  3;
 
-fib=n=>22;
+fib(10)
 
-fib=n=>33;
+// _ = console.log(fib(10));
 
-fib(44)
+// fast_fib = n => 
+//   _fib = (a, b, n) =>
+//     n == 0 ?
+//     a :
+//     _fib(b, a + b, n - 1);
+//   _fib(0, 1, n);
 
+// console.log(fast_fib(100))
 `)
 
 

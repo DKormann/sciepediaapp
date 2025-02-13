@@ -293,3 +293,5 @@ export const view = (putHTML:(el:HTMLElement)=>void) => {
       hist: [],
   })
 }
+
+
