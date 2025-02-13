@@ -127,7 +127,7 @@ const naive_parse = (code:string)=>{
     || matchparse(i, "true", "boolean")
     || matchparse(i, "false", "boolean")
     || matchparse(i, "null", "null")
-    || lookparse(i, c=>(c<='z' && c >='a' || c == '_') || (c<='Z' && c >='A'),"identifier")
+    || lookparse(i, c=>(c<='z' && c >='a' || c == '_') || (c<='9' && c >='0') || (c<='Z' && c >='A'),"identifier")
     || (code[i] === '"' && parse_until_char(i+1, '"', "string"))
     || (code[i] === "'" && parse_until_char(i+1, "'", "string"))
     || undefined
@@ -460,6 +460,9 @@ fib = n =>
 
 x = console.log(fib(10));
 x = fib(10);
+
+x2 = x + 2;
+
 
 fast_fib = n => 
   _fib = (a, b, n) =>
