@@ -15,4 +15,4 @@ view((el:HTMLElement)=>{
   el.focus()
 })
 
-import "./fcompile"
+import "./funscript"

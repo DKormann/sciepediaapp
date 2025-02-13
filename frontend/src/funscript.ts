@@ -127,7 +127,7 @@ const naive_parse = (code:string)=>{
     || matchparse(i, "true", "boolean")
     || matchparse(i, "false", "boolean")
     || matchparse(i, "null", "null")
-    || lookparse(i, c=>(c<='z' && c >='a') || (c<='Z' && c >='A'),"identifier")
+    || lookparse(i, c=>(c<='z' && c >='a' || c == '_') || (c<='Z' && c >='A'),"identifier")
     || (code[i] === '"' && parse_until_char(i+1, '"', "string"))
     || (code[i] === "'" && parse_until_char(i+1, "'", "string"))
     || undefined
@@ -137,29 +137,37 @@ const naive_parse = (code:string)=>{
     symbols.map(s=>match(s)(i) && [s, nonw(i+s.length)] as [string, number]).find(Boolean)
 
   const parse_continue = ([left, i]:[expression, number]):parsed<expression> => {
+    // log("continuing "+ code.slice(i))
     const po = parse_operator(i)
     if (!po) return [left, i]
     const [next_symbol, ni] = po
+    if (close_symbols.includes(next_symbol)) return [left, i]
+    if (next_symbol == "."){
+      const exn = parse_atom(ni)
+      if (!exn || exn[0].type !== "identifier") throw new Error('expected identifier after "."');
+      // log(exn)
+      const res = idx(left,{...exn[0], type:"string"})
+      // log(res)
+      return parse_continue([res, exn[1]])
+    }
     const exn = parse_expression(ni)
     if (!exn) return [left, i]
     const [next, j] = exn
-    if (next_symbol == ".") 
-      return assertEq(next.type, "identifier", "expected identifier"),
-      parse_continue([idx(left,{...next, type:"string"}), j])
     if (binary_symbols.includes(next_symbol)){
       return parse_continue([newbinary(next_symbol as binaryop, left, next), j])
     }
     if (next_symbol == "[") {
       const closer = parse_operator(j)
-      return closer && assertEq(closer[0], "]", "expected ]"),
-      parse_continue([idx(left, next), (closer as [string, number])[1]])
+      return closer && (assertEq(closer[0], "]", "expected ]"),
+      parse_continue([idx(left, next), (closer as [string, number])[1]]))
     }
     if (next_symbol == "("){
-      const closer = parse_operator(j)
-      return closer && assertEq(closer[0], ")", "expected )"),
-      parse_continue([app(left, next), (closer as [string, number])[1]])
+      // log("applying " +code.slice(ni))
+      const arglist = parse_group(["(", ni])
+      return arglist && parse_continue([app(left, arglist[0]), arglist[1]])
     }
     if (tertiary_symbols.includes(next_symbol)){
+
       const op2 = next_symbol=='='?';':':'
       const po = parse_operator(j)
       if (!po) throw new Error("expected \""+ op2+"\""+ code.slice(j))
@@ -181,10 +189,12 @@ const naive_parse = (code:string)=>{
   const unwrap = <T,U> (x:parsed<T>, fn:(x:[T,number])=>parsed<U>) => x ? fn(x) : undefined
 
   const parse_group = ([open, i]:[string, number]):[composite<astop>,number] => {
+
  
     const close = close_symbols[group_symbols.indexOf(open)]
     const type = open=="["?"[]":open=="{"?"{}":"arglist" as astop
     const parse_items = (i:number): [astnode[], number] =>{
+      // log("parsing items "+type +":  "+ code.slice(i, i+10))
       const closed = unwrap(parse_operator(i), ([s,j])=>s==close?[[],nonw(j)]:undefined)
       if (closed) return closed
       const [val, j] = force(parse_expression(i), "expected value "+code.slice(i, i+10))
@@ -217,6 +227,7 @@ const naive_parse = (code:string)=>{
     return [comp(type, ...items), j]
   }
   const parse_expression = (i:number):parsed<astnode> => {
+    ("parse exp "+ code.slice(i, i+10))
 
     const open = parse_operator(i)
     if (open){
@@ -242,19 +253,19 @@ const naive_parse = (code:string)=>{
 
   const res = parse_expression(nonw(0))
   if (!res) throw new Error("cant parse"+ code)
-  if (res[1] !== code.length) throw new Error("unparsed "+ code.slice(res[1]))
+  if (res[1] !== code.length) throw new Error("unexpected token after end of expression: "+ code.slice(res[1]))
   return res[0]
 }
 
 
 const operator_weight = (op:astop):number =>
-  (op =="?:") ? 6 :
+  (op =="?:")||(op === "=>") ? 6 :
   (op === "<")||(op === ">")||(op === "<=")||(op === ">=")||(op === "==")||(op === "!=")?7:
   (op === "&&")|| (op === "||")?9:
   (op === "+")||(op === "-") ?10:
   (op === "/")|| (op === "%")|| (op === "*")?11:
   op==="!" ?12:
-  (op === "app")||(op === "=>") || (op=="=;") ||(op=="...")?13 :
+  (op === "app") || (op=="=;") ||(op=="...")?13 :
   (op == "idx")? 14:
   (op === "[]") || (op === "{}") || (op === "arglist")?15:
   -1
@@ -286,22 +297,32 @@ const rearange = (node:astnode):astnode => {
   return res as expression
 }
 
-const compile = (ast:astnode):string =>{
+const parse = (code:string):expression => rearange(naive_parse(code)) as expression
+
+
+
+const buildjs = (ast:astnode):string =>{
+
+  const sfill = (template:string , ... children:astnode[]):string =>
+    children.length == 0?template:
+    sfill(template.replace("{}", buildjs(children[0])), ...children.slice(1));
+
   return ast.type == "number" || ast.type == "boolean" ? `${(ast as literal).value}`:
   ast.type == "string" ? `"${(ast as literal).value}"`:
   ast.type == "identifier" ? (ast as identifier).value:
-  ast.type == "..." ? `${ast.type}${compile(ast.children[0])}`:
-  ast.type == ":" ? `${compile(ast.children[0])}:${compile(ast.children[1])}`:
-  ast.type == "{}" ? `{${ast.children.map(compile).join(",")}}`:
-  ast.type == "[]" ? `[${ast.children.map(compile).join(",")}]`:
-  ast.type == "idx" ? `(${compile(ast.children[0])}[${compile(ast.children[1])}])`:
-  ast.type == "?:" ? `(${compile(ast.children[0])}?${compile(ast.children[1])}:${compile(ast.children[2])})`:
-  ast.type == "=;" ? `(()=>{const ${compile(ast.children[0])}=${compile(ast.children[1])};return ${compile(ast.children[2])}})()`:
-  ast.type == "app" ? `(${compile(ast.children[0])}(${compile(ast.children[1])}))`:
-  ast.arity == 2 ? `(${ast.children.map(compile).join(ast.type)})`:
-   `(${ast.type} ${ast.children.map(compile).join(",")})`
-
+  ast.type == ":" ? sfill(`{}:{}`, ...ast.children):
+  ast.type == "{}" ? `{${ast.children.map(buildjs).join(",")}}`:
+  ast.type == "[]" ? `[${ast.children.map(buildjs).join(",")}]`:
+  ast.type == "idx" ? sfill(`({}[{}])`, ...ast.children):
+  ast.type == "?:" ? sfill(`({}?{}:\n{})`, ...ast.children):
+  ast.type == "=;" ? sfill(`(()=>{const {}={};\nreturn {}})()`, ...ast.children):
+  ast.type == "arglist" ? `(${ast.children.map(buildjs).join(",")})`:
+  ast.arity == 2 ? sfill(`({}${ast.type == "app"?"":ast.type}{})`, ...ast.children):
+  ast.arity == 1 ? sfill(`${ast.type}{}`, ...ast.children):
+  "<unknown>"
 }
+
+const compile = (code:string):string => buildjs(parse(code))
 
 {
   const testRearange = (ast:astnode, expected:expression)=>{
@@ -338,12 +359,13 @@ const compile = (ast:astnode):string =>{
   testNaive("x[y]", idx(idn("x"), idn("y")))
 
   testNaive("x=>y", lam(idn("x"), idn("y")))
-
   testNaive("[1,2,3]", arr(1,2,3))
   testNaive("[1,3+4]", arr(1,alu("+",3,4)))
 
   testNaive("(1,2)", comp("arglist", 1,2))
   testNaive("(x+33)", comp("arglist", alu("+", idn("x"), 33)))
+
+  testNaive('fn(x-2)', app(idn("fn"), comp("arglist", alu("-", idn("x"), 2))))
 
 
   testRearange(ex(1), ex(1))
@@ -360,7 +382,7 @@ const compile = (ast:astnode):string =>{
     try{
       assertEq (res, ex(expected), '')
     }catch(e){
-      console.error("parse fail on "+ code + " =>\n"+ compile(res) + " !=\n"+ compile(ex(expected)))
+      console.error("parse fail on "+ code + " =>\n"+ buildjs(res) + " !=\n"+ buildjs(ex(expected)))
     }
   }
 
@@ -383,12 +405,16 @@ const compile = (ast:astnode):string =>{
 
 }
 const testCompile = (code:string, expected: string)=>{
-  const res = compile(rearange(naive_parse(code)))
-  try {
-    assertEq(res, expected, " in compiling " + code)
+  try{
+    const res = compile(code)
+    try {
+      assertEq(res, expected, " in compiling " + code)
+    }catch(e){
+      console.error("unexpected result compiliing "+code+ " =>\n"+ res + " !=\n"+ expected)
+    }
   }catch(e){
-
-    console.error("compiliing "+code+ " =>\n"+ res + " !=\n"+ expected)
+    console.error("compiliing "+code+ " =>\n"+ e)
+    throw(e)
   }
 }
 
@@ -403,39 +429,51 @@ testCompile("x[y]", '(x[y])')
 testCompile("x=>y", '(x=>y)')
 testCompile("x=>x.y", '(x=>(x["y"]))')
 
-testCompile("1 > 2 ? 3 : 4", '((1>2)?3:4)')
-testCompile("1>2?3:4", '((1>2)?3:4)')
+testCompile("1 > 2 ? 3 : 4", '((1>2)?3:\n4)')
+testCompile("1>2?3:4", '((1>2)?3:\n4)')
 
 testCompile('fn(22)', '(fn(22))')
 testCompile('"a"+"b"', '("a"+"b")')
 testCompile('a.b', '(a["b"])')
 
+testCompile('n=>n<2?n:2', '(n=>((n<2)?n:\n2))')
+testCompile('fn(x-2)', '(fn((x-2)))')
 
+testCompile('[fn(x),2]', '[(fn(x)),2]')
+testCompile('[x[3],e.r,2,]', '[(x[3]),(e["r"]),2]')
+testCompile("[-x, !true]", '[-x,!true]')
+
+testCompile("a.b(22)", '((a["b"])(22))')
+testCompile("a.b(f(22))", '((a["b"])((f(22))))')
 
 let expr = (s:string) => log(eval(
   log
-  (compile(rearange(naive_parse(s))))))
+  (buildjs(parse(s)))))
 
 
 expr(`
 
-fib = (n) => 
+fib = n => 
   n < 2 ?
-  n:
-  3;
+  n :
+  fib(n - 1) + fib(n - 2);
 
-fib(10)
+x = console.log(fib(10));
+x = fib(10);
 
-// _ = console.log(fib(10));
+fast_fib = n => 
+  _fib = (a, b, n) =>
+    n == 0 ?
+    a :
+    _fib(b, a + b, n - 1);
+  _fib(0, 1, n);
 
-// fast_fib = n => 
-//   _fib = (a, b, n) =>
-//     n == 0 ?
-//     a :
-//     _fib(b, a + b, n - 1);
-//   _fib(0, 1, n);
-
-// console.log(fast_fib(100))
+console.log(fast_fib(100))
 `)
+
+const fib = (n:number):number=>
+  n<2?n:fib(n-1)+fib(n-2)
+fib(2)
+
 
 

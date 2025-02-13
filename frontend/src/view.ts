@@ -2,7 +2,7 @@
 // @ts-ignore
 import {Root as Root, getData, setData, Child, Path, root, child} from './data'
 import { htmlElement, htmlKey } from './_html'
-import "./fcompile"
+import "./funscript"
 
 import { assertEq, comp, log, last, LastT, stringify, setAttr, uuid} from './helpers'
 import { Store , store} from './_store'
