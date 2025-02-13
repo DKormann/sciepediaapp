@@ -6,6 +6,9 @@ import "./funscript"
 
 import { assertEq, comp, log, last, LastT, stringify, setAttr, uuid} from './helpers'
 import { Store , store} from './_store'
+import { runfun } from './funscript'
+
+
 
 const max = Math.max
 const abs = Math.abs
@@ -35,6 +38,7 @@ type Pelement = {
   cursor:number ,
 }
 
+
 type Rendered = Pelement & {
   el:HTMLElement
 }
@@ -46,7 +50,10 @@ const build = (r:Root, path:Path, indent:number):Pelement[] => {
   const tit = node.path.join('.')
   return [
     {content:tit,path,indent,is_title:true, children:[], cursor:-1},
-    ...node.Content.split('\n').map(c=>({content:c, indent, path, children:[], cursor:-1}))
+    ...node.Content.split('\n').map(c=>({content:c, indent, path, children:[], cursor:-1})),
+    ...(last(path) == 'fs' ? 
+    build(r, path.concat(">>>"), indent+1)
+    :[]),
   ]
 }
 
@@ -111,10 +118,32 @@ const setLine = (line:number|[number, number], ...lines: Pelement[]):Update=>s=>
     s=>setStateVar("r", setData(s.r,
       child(lines[0].path.join("."),
       seekPage(start,s).slice(1).map(p=>p.content).join("\n"))))(s),
+    s=>{
+      if (last(lines[0].path) == 'fs'){
+        log("running fs")
+        const page = seekPage(start,s)
+        try{
+          const res = log(runfun(page.slice(1).map(p=>p.content).join("\n")))
+          const lpl = lastPageLine(start, s)-1
+          return setLine([lpl, lastPageLine(lpl,s)], 
+          log({
+            ...s.p[lpl],
+            content:stringify(res),
+            is_title:undefined,
+          }))(s)
+         
+        }catch(e){
+          console.error(e)
+        }
+      }
+      return s
+    },
 
     setStateVar('cursor', focusline == -1? s.cursor: start+focusline)
   )(s)
 }
+
+
 
 const cc = <T> (...fs:((a:T)=>T|void)[]) => (a:T) => fs.reduce((r,f)=>f(r)??r,a)
 
@@ -140,12 +169,16 @@ const findChar = (p:Rendered, x:number) =>{
   return i == -1? ls.length:i
 }
 
+const lastPageLine = (pn:number, s:State) =>{
+  const es = s.p.slice(pn).findIndex(p=>p.indent<s.p[pn].indent)
+  return es>-1?es+pn:s.p.length
+}
+
 const seekPage = (pn:number, s:State) =>{
   const t = s.p[pn]
   const fs = pn-s.p.slice(0,pn).reverse().findIndex(p=>p.is_title && p.indent ==t.indent)-1
   assertEq(s.p[fs].is_title, true, ' no title')
-  const es = s.p.slice(pn).findIndex(p=>p.indent<t.indent)
-  const res =  s.p.slice(fs, es>-1?es+pn:undefined).filter(p=>p.indent==t.indent)
+  const res =  s.p.slice(fs, lastPageLine(pn, s)).filter(p=>p.indent==t.indent)
   return res
 }
 
@@ -293,5 +326,3 @@ export const view = (putHTML:(el:HTMLElement)=>void) => {
       hist: [],
   })
 }
-
-

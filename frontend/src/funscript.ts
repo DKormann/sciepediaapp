@@ -446,37 +446,38 @@ testCompile("[-x, !true]", '[-x,!true]')
 testCompile("a.b(22)", '((a["b"])(22))')
 testCompile("a.b(f(22))", '((a["b"])((f(22))))')
 
-let expr = (s:string) => log(eval(
+let expr = (s:string) => (eval(
   log
   (buildjs(parse(s)))))
 
 
-expr(`
+// expr(`
 
-fib = n => 
-  n < 2 ?
-  n :
-  fib(n - 1) + fib(n - 2);
+// fib = n => 
+//   n < 2 ?
+//   n :
+//   fib(n - 1) + fib(n - 2);
 
-x = console.log(fib(10));
-x = fib(10);
+// x = console.log(fib(10));
+// x = fib(10);
 
-x2 = x + 2;
+// x2 = x + 2;
 
 
-fast_fib = n => 
-  _fib = (a, b, n) =>
-    n == 0 ?
-    a :
-    _fib(b, a + b, n - 1);
-  _fib(0, 1, n);
+// fast_fib = n => 
+//   _fib = (a, b, n) =>
+//     n == 0 ?
+//     a :
+//     _fib(b, a + b, n - 1);
+//   _fib(0, 1, n);
 
-console.log(fast_fib(100))
-`)
-
-const fib = (n:number):number=>
-  n<2?n:fib(n-1)+fib(n-2)
-fib(2)
+// console.log(fast_fib(100))
+// `)
 
 
 
+export const runfun = (code:string, debug = false)=>{
+  const jscode = compile(code)
+  if (debug) log(jscode)
+  return eval(jscode)
+}
