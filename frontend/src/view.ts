@@ -2,314 +2,283 @@
 // @ts-ignore
 import {Root as Root, getData, setData, Child, Path, root, child} from './data'
 import { htmlElement, htmlKey } from './_html'
+import "./fcompile"
 
-import { assertEq, comp, log, last, LastT, stringify, setAttr} from './helpers'
+import { assertEq, comp, log, last, LastT, stringify, setAttr, uuid} from './helpers'
 
-type PageView = {
-  type:'page'
-  stack:PageStack
-  element?:HTMLElement
-  open : LineView[]
-  editable:boolean
+const max = Math.max
+const abs = Math.abs
+
+type State = {
+  r: Root,
+  p: Rendered[],
+  cursor: number,
+  hist: State [],
 }
 
-type LineView = {
-  type:'line'
-  stack:LineStack
-  element?:HTMLElement
-  open: PageView[]
-  content:string
+const setStateVar = <K extends keyof State>(key: K, value: State[K]): Update => s => ({
+  ...s,
+  [key]: uuid(value),
+})
+
+type Pelement = {
+  content:string,
+  indent:number,
+  children:Pelement[],
+  path:Path,
+  is_title ?: true,
+  el?:HTMLElement,
+  cursor:number ,
 }
 
-type ID = Path|number
-
-type stack = ID[]
-type PageStack = LastT<ID, Path>
-type LineStack = LastT<ID, number>
-
-type View = LineView|PageView
-
-export type State = {
-  pageState:PageView
-  root:Root
-  selection?:{node:ID[], offset:number}
-  editable:ID[]
+type Rendered = Pelement & {
+  el:HTMLElement
 }
 
 const islink = (s:string) => s.startsWith('#') && s.length > 1
-const linkpath = (s:string) => s.slice(1).split('.')
-
-const stack=(...x:(string| number)[])=>
-  x.map(x=>typeof x === 'number'?x:linkpath(x))
-
-assertEq(stack('#me'), [['me']], 'stack')
-assertEq(stack('#me',0,'#link.other'), [['me'], 0, ['link','other']], 'stack')
 
 
-const createView=(r:Root, stack:PageStack):PageView => {
-  const node = getData(r, last(stack) as Path)
-  const lines = node.Content.split('\n')
-  return {
-    type:'page',
-    stack,
-    editable: false,
-    open: lines.map((l,i)=>({
-      id:i,
-      type:'line',
-      stack:[...stack, i],
-      content:l,
-      open: [],
-    }))
-  }
+const build = (r:Root, path:Path, indent:number):Pelement[] => {
+  const node = getData(r, path)
+  const tit = node.path.join('.s')
+  return [
+    {content:tit,path,indent,is_title:true, children:[], cursor:-1},
+    ...node.Content.split('\n').map(c=>({content:c, indent, path, children:[], cursor:-1}))
+  ]
 }
 
-const getID = (v:View)=>last(v.stack as LastT<ID, ID>)
+const render = (par: Pelement):Rendered=>(
+  {...par,
+    el: htmlElement('p', '', 'line', {children:[
+        ...Array.from({length:par.indent}, _=>htmlElement('div', '', 'pad')),
+        ...par.is_title? [htmlElement('span', par.content, 'title')]
+        :insert(
+          par.content.split(' ').map(w=>(' '+w).split('').map(c=>htmlElement('span', c, islink(w)?'link':'char'))).flat().slice(1),
+          par.cursor, cursor()
+        )
+      ]
+    }
+  )
+})
 
-const pageHTML = (page:PageView):HTMLElement=>
-  element('div', page.stack, '', 'page', {
-    children:[
-      element('h2', page.stack, (getID(page) as Path).join('.'), 'head'),
-      element('div', page.stack, '', 'body', {children:page.open.map(l=>l.element), contentEditable:page.editable}),
-    ],
-  })
+const insert = <T>(arr:T[], idx:number|undefined, ...elements:T[])=>{
+  return idx!=undefined && idx>=0?[...arr.slice(0,idx), ...elements, ...arr.slice(idx)]:arr
+} 
 
-const element = (tag:string, stack:ID[], w:string, cls:string, attr:Partial<Record<htmlKey, any>>={})=>
-  htmlElement(tag, w, ['class', 'stack '+cls], ['id', JSON.stringify(stack)], ...Object.entries(attr) as [htmlKey, any][])
-
-const lineHTML = (line:LineView):HTMLElement =>
-
-  element('p',line.stack, '', 'line', {
-    children: [
-      element('span',line.stack, '', 'line span', {children:
-        line.content == ''?[element('br',line.stack, '', 'line')]:
-        line.content.split(' ')
-        .map(w=>element('span',line.stack, w, islink(w)?'link':'line'))
-        .reduce((l:(HTMLElement)[],w,i)=>[...l,element('span',line.stack, i?' ':'', 'line'), w], []),
-      }),
-      ...line.open.map(p=>p.element!)
+const toggleLink = (lnum:number, start:number, end:number):Update=>s0=>{
+  const s = pushhist(clearCursor(s0))
+  const target = s.p[lnum]
+  const link = target.content.slice(start,end)
+  assertEq(islink(link), true, 'open non link:'+link)
+  const prev = s.p.slice(0,lnum)
+  const rest = s.p.slice(lnum+1)
+  const scope = rest.findIndex(p=>p.indent==target.indent)
+  return setStateVar('p',[...prev,
+    ... (scope <= 0)?[
+      {...target, content:target.content.slice(0,end), el:undefined},
+      ...build(s.r, [link.slice(1)], target.indent+1).map(render),
+      {...target, content:target.content.slice(end), el:undefined},
+      ...rest
+    ]:[
+      render({...target, content: target.content+rest[scope].content, el:undefined}),
+      ...rest.slice(scope+1),
     ]
-  })
-
-const deepWalk = (v:View, fn:(v:View)=>View):View =>fn({...v, open:v.open.map(p=>deepWalk(p, fn)) } as View)
-const render = (v:View)=>{
-  const res = deepWalk(v,(v:View):View=>({...v, element:v.type === 'line'?lineHTML(v):pageHTML(v)}))
-  return res
+  ].map(render))(s)
 }
 
-const getChild = (v:View|undefined, id:ID): View|undefined=>
-  (v?.open as View[]).find(v=>comp(getID(v), id))
-const getView = (s:State, stack:ID[])=> {
-  if (stack.length === 0 || !comp(s.pageState.stack[0],stack[0])) return undefined
-  return stack.slice(1).reduce(getChild, s.pageState)
-}
+const cursor = ()=>htmlElement('div', '', 'cursor')
 
-const updateView=<T extends View>(stack:ID[], fn:(v:T)=>T):Update => s=>setView(stack, fn(getView(s, stack) as T))(s)
+const getLines = (lnum:number|[number,number|undefined]) => (s:State) => 
+  ((typeof lnum == 'number')?[s.p[lnum]]:s.p.slice(lnum[0],lnum[1]))
 
-const openLink= (stack:PageStack):Update=>s =>updateView<LineView>(stack.slice(0,-1), (ln:LineView)=>({
-  ... ln, open: ln.open.concat(createView(s.root, stack)) }))(s)
+const updateLines = (lnum:number|[number,number], f:(p:Pelement[])=>Pelement[]):Update=>s=>
+  setLine(lnum, ...f(getLines(lnum)(s)))(s)
 
-
-const toggleLink = (stack:ID[], path:Path) :Update=>s=> updateView<LineView>(stack, ln=>({
-  ... ln,
-  open: (ln.open.find(v=>comp(getID(v), path))?
-  ln.open.filter(v=>!comp(getID(v), path)):
-  ln.open.concat(createView(s.root, [...stack, path])))
-}))(s)
-
-
-type Fn <T,U> = (t:T)=>U
-type Step <T> = Fn<T,T>
-type Update = Step<State>
-
-const _if = <T>(cond:Fn<T,boolean>, then:Step<T>|Step<T>[], els:Step<T>|Step<T>[]=s=>s):Fn<T,T> => t=>{
-  const red = (t:T, f:Step<T>|Step<T>[])=>f instanceof Array?f.reduce((t,f)=>f(t), t):f(t)
-  return cond(t)?red(t, then):red(t, els)
-}
-
-const cc = <T>(...f:Step<T>[]):Step<T> => t=>f.reduce((t,f)=>f(t), t)
-
-const setViewAttr = (stack:ID[], key:string, val:any) => updateView(stack, setAttr<View>(key, val))
-const setEditble = (stack:ID[])=>
-    cc<State>(
-    _if(s=>s.editable.length>0, s=>setViewAttr(s.editable, 'editable', false)(s)),
-    setAttr<State>('editable', stack),
-    _if(_=>stack.length>0, [
-      updateView(stack, (v:PageView)=>({...v, open:v.open.map(l=>({...l, open:[]}))})),
-      setViewAttr(stack, 'editable', true), 
+const setLine = (line:number|[number, number], ...lines: Pelement[]):Update=>s=>{
+  const [start,end] = (typeof line == 'number')?[line,line+1]:line
+  assertEq(end>=start, true, `end>=start ${end}>=${start}`);
+  const focusline = lines.findIndex(p=>p.cursor>-1)
+  return cc(
+    setStateVar('p',[
+    ...s.p.slice(0,start),
+    ...lines.map(render),
+    ...s.p.slice(end)
     ]),
-  )
-
-const _setView=<T extends View>(r:Root, parent:T, stack:ID[], view:View):T => {
-  if (stack.length === 0) return view as T
-  const open = parent.open.map(v=>comp(getID(v), stack[0])?_setView(r, v as T, stack.slice(1), view):v)
-  return {...parent,open}
+    setStateVar('cursor', focusline == -1? s.cursor: start+focusline)
+  )(s)
 }
 
-const setView = (stack:ID[], view:View):Update=>
- s=> setAttr<State>('pageState', _setView(s.root, s.pageState, stack.slice(1), view))(s)
+const cc = <T> (...fs:((a:T)=>T|void)[]) => (a:T) => fs.reduce((r,f)=>f(r)??r,a)
 
-const chain = cc<State>;
+const clearCursor:Update = cc(
+  s=>s.cursor>-1?updateLines(s.cursor,([p])=>([{...p, cursor:-1, el:undefined}]))(s):s,
+  setAttr('cursor', [-1,-1])
+)
 
+const setCursor = (lnum:number, cnum:number):Update=>cc(
+  clearCursor,
+  updateLines(lnum, ([p])=>([{...p, cursor:cnum, el:undefined}])),
+  setAttr('cursor', lnum),
+)
 
-type Tree<T> = {value:T, children?:Tree<T>[]}
-const treeMap = <T,U> (f:(t:T)=>U, t:Tree<T>):Tree<U> =>
-  ({value:f(t.value), children:t.children?.map(c=>treeMap(f,c))})
-const treeFilter = <T> (f:(t:T)=>boolean, t:Tree<T>):Tree<T> =>
-  ({value:t.value, children:t.children?.map(c=>treeFilter(f,c))?.filter(c=>f(c.value))})
-const flatten = <T> (t:Tree<T>):T[] =>
-  t.children==undefined?[t.value]:[...t.children.map(flatten)].flat()
+const findLine = (p:Rendered[],y:number):number=>
+  p.findIndex(({el})=>el.clientHeight + el.offsetTop > y)
 
+const letters = (p:Rendered) => (Array.from(p.el.children).filter(x=>x.nodeName=='SPAN') as HTMLElement[])
 
-function getHTMLText(node:Node):string{
-  if (node instanceof Text) return node.textContent!
-  if (node instanceof HTMLBRElement) return '\n'
-  if (node instanceof HTMLParagraphElement) {
-    if (node.children.length === 1 && node.children[0] instanceof HTMLBRElement) return '\n'
-    if (node.textContent?.trim() === '') return '\n'
-    return '\n'+Array.from(node.childNodes).map(getHTMLText).join('')
+const findChar = (p:Rendered, x:number) =>{
+  const ls = letters(p)
+  const i = ls.findIndex(e=>(e.offsetLeft +e.offsetWidth/2) > x)
+  return i == -1? ls.length:i
+}
+
+const seekPage = (pn:number, s:State) =>{
+  const fe = s.p.slice(pn).findIndex(p=>p.is_title)
+  return getLines([
+    s.p.slice(0,pn).reverse().findIndex(p=>p.is_title),
+    fe == -1?undefined:fe
+  ])
+}
+
+const seekWord = (p:Pelement, c:number) =>
+  [c-last(p.content.slice(0,c).split(' ')).length , c+p.content.slice(c).split(' ')[0].length]
+
+type Update = (s:State) => State
+
+const cursorMove=(dl:number, dc:number):Update => s=>{
+  const old = getLines(s.cursor)(s)[0]
+  const [ln, cn] = [s.cursor+dl, old.cursor+dc]
+  const newp = getLines(ln)(s)[0]
+  if (newp == undefined || newp.is_title) return s
+  if (cn<0) {
+    const ln = s.cursor-1
+    const newp = getLines(ln)(s)[0]
+    if (newp == undefined || newp.is_title) return s
+    return setCursor(ln, newp.content.length)(s)
   }
-  return Array.from(node.childNodes).map(getHTMLText).join('')
+  if (cn>newp.content.length && dc){
+      const newp = getLines(ln+1)(s)[0]
+      if (newp == undefined || newp.is_title) return s
+      return setCursor(ln+1, 0)(s)
+  }
+  return setCursor(ln,cn)(s)
 }
-import { sanitizeText } from './editing'
+
+
+
+const pushhist:Update = s=> (
+  localStorage.setItem('root', stringify(log(s.r))),
+  log('push'),(last (s.hist) == undefined || uuid(s).id != 
+uuid(last(s.hist)).id
+) ?setStateVar('hist', [...s.hist.slice(-10), s])(s):(log('no change'), s))
+
+
 export const view = (putHTML:(el:HTMLElement)=>void) => {
-  
-  const r = root(child(['me'], 'hello #link\nnl'), child(['link'], 'world #aka\nalso #akb #link'), child(['aka'], 'aka'))
 
-  const s = {
-    root:r,
-    pageState:createView(r, [['me']]),
-    editable:[]
-  }
-
-
-
-  const flatten = (node:ChildNode):{el:ChildNode, t:string}[]=>{
-    if (node instanceof Text) return [{el:node, t:node.textContent!}]
-    if (node instanceof HTMLBRElement) return [
-      {el:node, t:''}
-    ]
-    const cres = Array.from(node.childNodes).map(flatten).flat()
-    return (node instanceof HTMLParagraphElement)? [{el:node,t:'\n'}, ...cres]:[{el:node,t:''}, ...cres]
-  }
-
-  const show = chain(
-
-    s=>setAttr<State>('pageState', render(s.pageState))(s),
-    s=>{
-      const parseEventStack = (e:Event):ID[]|undefined=>
-        (e.target instanceof HTMLElement && e.target.classList.contains('stack'))?
-        JSON.parse(e.target.id) as ID[]
-        :undefined
-
-      const listnr = htmlElement('div', '', ['eventListeners', {
-        click: (e:Event)=>{
-          const stack = parseEventStack(e)
-          if (!stack) return
-          const t = e.target as HTMLElement
-          const pagestack = stack.slice(0,-1)
-          if (t.classList.contains('link')){
-            cc(
-              setEditble([]),
-              toggleLink(stack, linkpath(t.textContent!)),
-              show
-            )(s)
-          }else if (t.classList.contains('line')){
-            if (!(getView(s, pagestack)as PageView).editable)show(setEditble(pagestack)(s))
-          }
-        },
-
-        paste: (e:ClipboardEvent)=>{
-          e.preventDefault()
-          log(e.clipboardData?.getData('text'))
-          log(e.target)
-
-          const stack = parseEventStack(e)
-          log(stack)
-        },
-        input: (e:InputEvent)=>{
-
-          const stack = parseEventStack(e)
-          if (!stack) return
-
-          if (e.inputType == 'insertFromPaste') e.preventDefault()
-
-          if ((e.target as HTMLElement).classList.contains('body')){
-
-            const page = getView(s, stack) as PageView
-            const pageText = page.element!.childNodes[1]!
-            const ptext = getHTMLText(pageText).slice(pageText.childNodes[0]! instanceof HTMLParagraphElement?1:0)
-
-            const fl = flatten(pageText)
-            const sel = window.getSelection()!
-            const nodeidx = fl.findIndex(t=>t.el==sel.anchorNode)
-            if (nodeidx === -1) console.error('nodeidx', sel.anchorNode, fl);
-
-            const cursorn = fl.slice(0,nodeidx).map(t=>t.t).join('').length + sel.anchorOffset
-            if(e.inputType == 'deleteContentBackward') return
-
-            cc(
-              s=>({
-                ...s,
-                selection:{node:page.stack, offset: cursorn},
-                root:setData(s.root, {...getData(s.root, getID(page) as Path), Content:ptext}),
-              }),
-              s=>{return setView(page.stack, setAttr<PageView>('editable', true)(createView(s.root, page.stack)))(s)},
-              show
-            )(s)
-          }
-        },
-      }],['children', [s.pageState.element!]], ['id', 'eventListener'])
-      putHTML(listnr)
-      return s
-    },
-
-    s=>{
-      if(s.selection==undefined)return s
-      const v = getView(s, s.selection.node) as PageView
-      if (v === undefined) return s
-      const fl = (node:ChildNode):Text[]=>{
-        if (node instanceof Text) return [node]
-        return Array.from(node.childNodes).map(fl).flat()
+  const show = (s:State)=>{
+    const onclick = (e:MouseEvent)=>{
+      const p = findLine(s.p, e.y+window.scrollY)
+      if (p === -1) return
+      const c = findChar(s.p[p], e.x+window.scrollX)
+      const [a,b] = seekWord(s.p[p],c)
+      if (islink(s.p[p].content.slice(a,b))){
+        show(toggleLink(p,a,b)(s))
+      }else{
+        show(setCursor(p,c)(s))
       }
+    }
 
-      const fls = flatten(v.element!.childNodes[1]!)
-      const [prevcount,ndx] = fls.reduce(([c, res], t, i)=>{
-        if (res>=0) return [c,res]
-        const cc = c+t.t.length
-        if (cc>=s.selection!.offset) return [c, i]
-        return [cc, -1]
-      }, [0,-1] )
+    putHTML(htmlElement('div', '', 'root',{
+      children: s.p.map(p=>p.el),
+      eventListeners:{
+        click: onclick,
+        keydown: (e:KeyboardEvent)=>{
+          
+          if (['Meta','Control', 'Alt', 'Shift'].includes(e.key)) return
 
-      const anchor = fls[ndx].el
-      const anchorOffset = anchor.nodeName === 'P'?0: s.selection.offset - prevcount
-      anchor.parentElement?.focus();
-      window.getSelection()!.collapse(anchor, anchorOffset)
-      return s
-    },
-  )
+          if (e.key.startsWith("Arrow")){
+            e.preventDefault()
 
-  {
-    chain(
-      s=>{
-        const mev = createView(s.root, [['me']])
-        assertEq(mev.open.length, 2, 'createView')
-        assertEq(mev.type, 'page', 'createView')
-        assertEq(mev.stack, [['me']], 'createView')
-        const got = getView(s, [['me']])
-        assertEq(got, mev, 'getView')
-        assertEq(setView([['me']], getView(s, [['me']])!)(s), s, 'setView')
-        const ln = getView(s, [['me'],0]) as LineView
-        const res = setView([['me'],0], {...ln, content:"hiii"} as LineView)(s)
-        assertEq(getView(res, [['me'],0]), {...ln, content:"hiii"}, 'setView')
-        const op = openLink([['me'],0, ['link']])(s)
-        assertEq((getView(op, [['me'],0]) as LineView).open.length, 1, 'openLink')
-        const el = render(op.pageState).element!
-        assertEq(el.children[0].tagName, 'H2', 'render')
-        assertEq(el.children[1].children[0].children[0].tagName, 'SPAN', 'render')
-        assertEq(el.children[1].children[0].children[0].textContent, "hello #link", 'render')
-        return s
+            const par = getLines(s.cursor)(s)[0];
+            const st = e.altKey?5
+            :e.metaKey?(
+              e.key == 'ArrowUp'?s.p.slice(0,s.cursor).reverse().findIndex(p=>p.is_title)
+              :e.key == 'ArrowDown'?(s.p.slice(s.cursor).concat({...par,indent:par.indent-1})).findIndex(p=>p.indent<par.indent)-1
+              :e.key == 'ArrowLeft'?par.cursor
+              :par.content.length-par.cursor
+            )
+            :1
+
+            return show(cursorMove(
+              e.key == 'ArrowUp'?-st:e.key == 'ArrowDown'?st:0,
+              e.key == 'ArrowLeft'?-st:e.key == 'ArrowRight'?st:0)(s))
+          }
+          if (e.key == 'Enter') {
+            cc(
+              pushhist,
+              updateLines(s.cursor, ([p])=>([
+                {...p, content:p.content.slice(0,p.cursor), cursor:-1},
+                {...p, content:p.content.slice(p.cursor), cursor:0},
+              ])),
+              show
+            )(s)
+            return
+          }
+          if (e.key == 'Backspace') {
+            const speed = e.altKey?5:e.metaKey?getLines(s.cursor)(s)[0].cursor:1
+            return show(updateLines([s.cursor-1, s.cursor+1], ps=>{
+              if (ps.length==0) return []
+
+              if (ps.length==1) {
+                const p = ps[0]
+                return [{...p, content:p.content.slice(0,p.cursor-speed)+p.content.slice(p.cursor), cursor:Math.max(0, p.cursor!-speed)}]
+              }else{
+                const [p1,p2] = ps
+                return (p2.cursor>0 || p1.indent!=p2.indent)?
+                [p1, {...p2, content:p2.content.slice(0,Math.max(0,p2.cursor-speed))+p2.content.slice(p2.cursor), cursor:Math.max(0,p2.cursor-speed)}]
+                :[{...p1, content:p1.content.slice(0,-speed)+p2.content, cursor:p1.content.length+1-speed}]
+              }
+            })(pushhist(s)))
+          }
+          if (e.key == 'Delete') return
+          if (e.key == 'Tab') {
+            if (e.metaKey || e.shiftKey) return
+            e.preventDefault()
+            return show(updateLines(s.cursor, ([p])=>([{...p, content:p.content.slice(0,p.cursor)+'  '+p.content.slice(p.cursor) , cursor:p.cursor+2}]))(s))
+          }
+
+          if (e.key == 'Escape') return
+          if (e.key.length==1){
+          
+            if (e.metaKey) {
+              if (e.key == 'z'){
+                log('undo')
+                if (s.hist.length) show({
+                  ...last(s.hist),
+                  hist: s.hist.slice(0,-1)
+                })
+              }
+              return
+            }
+            if (s.cursor == -1) return
+            cc<State>(
+              pushhist,
+              updateLines(s.cursor, ([p])=>([{...p, content:p.content.slice(0,p.cursor)+e.key+p.content.slice(p.cursor) , cursor:p.cursor+1}])),
+              show
+            )(s)
+            return
+          }
+        },
       },
-      show
-    )(s)
+    }));
   }
+
+
+  const r = root()
+  show({
+    r,
+    p: build(r, ['hello'], 1).map(render),
+    cursor: 0,
+    hist: [],
+  })  
 }
