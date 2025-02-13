@@ -174,7 +174,6 @@ const cursorMove=(dl:number, dc:number):Update => s=>{
 }
 
 const pushhist:Update = s=> (
-  // localStorage.setItem('root', stringify(log(s.r))),
   log('push'),(last (s.hist) == undefined || uuid(s).id != 
 uuid(last(s.hist)).id
 ) ?setStateVar('hist', [...s.hist.slice(-10), s])(s):(log('no change'), s))
@@ -285,10 +284,6 @@ export const view = (putHTML:(el:HTMLElement)=>void) => {
    root(child('hello', 'hello #world'))
 
   cc(
-    // toggleLink(1,6,12),
-    // updateLines(3, ([p])=>([{...p, content:"hello world"}])),
-    // updateLines(3, ([p])=>([p,{...p, content:"i love you"}])),
-    // updateLines(4, ([p])=>([p,{...p, content:"fr fr"}])),
     show
   )({
       r,
