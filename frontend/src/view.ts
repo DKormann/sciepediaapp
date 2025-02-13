@@ -124,13 +124,17 @@ const setLine = (line:number|[number, number], ...lines: Pelement[]):Update=>s=>
         const page = seekPage(start,s)
         try{
           const res = log(runfun(page.slice(1).map(p=>p.content).join("\n")))
+          log(s.p[start].path)
           const lpl = lastPageLine(start, s)-1
-          return setLine([lpl, lastPageLine(lpl,s)], 
-          log({
-            ...s.p[lpl],
-            content:stringify(res),
-            is_title:undefined,
-          }))(s)
+          return setLine(log([lpl, lastPageLine(lpl,s)]),
+          ...stringify(res).split("\n").map(
+            c=>({
+              ...s.p[lpl],
+              content:c,
+              cursor:-1,
+              is_title:undefined,
+            } as Pelement)
+          ))(s)
          
         }catch(e){
           console.error(e)
@@ -174,13 +178,14 @@ const lastPageLine = (pn:number, s:State) =>{
   return es>-1?es+pn:s.p.length
 }
 
-const seekPage = (pn:number, s:State) =>{
-  const t = s.p[pn]
-  const fs = pn-s.p.slice(0,pn).reverse().findIndex(p=>p.is_title && p.indent ==t.indent)-1
-  assertEq(s.p[fs].is_title, true, ' no title')
-  const res =  s.p.slice(fs, lastPageLine(pn, s)).filter(p=>p.indent==t.indent)
-  return res
+const firstPageLine = (pn:number, s:State) =>{
+  const fs = pn - s.p.slice(0,pn).reverse().findIndex(p=>p.is_title && p.indent == s.p[pn].indent) - 1
+  return fs
 }
+
+const seekPage = (pn:number, s:State) =>
+  log("got page", s.p.slice(firstPageLine(pn, s), lastPageLine(pn, s)).filter(p=>p.indent==s.p[pn].indent))
+
 
 const seekWord = (p:Pelement, c:number) =>
   [c-last(p.content.slice(0,c).split(' ')).length , c+p.content.slice(c).split(' ')[0].length]
