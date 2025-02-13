@@ -10,7 +10,7 @@ class PersistantStore {
   private _is_main:boolean
   private _side_store:Map<string,string>|null
   constructor(_is_main:boolean, _side_store:Map<string,string>|null){
-    this._is_main = false
+    this._is_main = _is_main
     this._side_store = _side_store
   }
 
@@ -21,7 +21,7 @@ class PersistantStore {
   }
 
   public set = (key:string, value:any):PersistantStore =>{
-    const val = JSON.stringify(value)
+    const val = JSON.stringify(value, (k,v)=>k=='id'?undefined:v)
     if (this._is_main){
       localStorage.setItem('sciepediaapp_'+key, val)
       this._is_main = false

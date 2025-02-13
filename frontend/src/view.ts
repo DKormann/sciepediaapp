@@ -5,6 +5,7 @@ import { htmlElement, htmlKey } from './_html'
 import "./fcompile"
 
 import { assertEq, comp, log, last, LastT, stringify, setAttr, uuid} from './helpers'
+import { Store , store} from './_store'
 
 const max = Math.max
 const abs = Math.abs
@@ -12,14 +13,17 @@ const abs = Math.abs
 type State = {
   r: Root,
   p: Rendered[],
+  store: Store,
   cursor: number,
   hist: State [],
 }
 
-const setStateVar = <K extends keyof State>(key: K, value: State[K]): Update => s => ({
+const setStateVar = <K extends keyof State>(key: K, value: State[K]): Update => s => {
+  return {
   ...s,
+  store: key=='r'?s.store.set('root', value):s.store,
   [key]: uuid(value),
-})
+}}
 
 type Pelement = {
   content:string,
@@ -104,6 +108,11 @@ const setLine = (line:number|[number, number], ...lines: Pelement[]):Update=>s=>
     ...lines.map(render),
     ...s.p.slice(end)
     ]),
+
+    s=>setStateVar("r", setData(s.r,
+      child(lines[0].path.join("."),
+      log("newtext", seekPage(start,s).slice(1).map(p=>p.content).join("\n")))))(s),
+
     setStateVar('cursor', focusline == -1? s.cursor: start+focusline)
   )(s)
 }
@@ -133,11 +142,15 @@ const findChar = (p:Rendered, x:number) =>{
 }
 
 const seekPage = (pn:number, s:State) =>{
-  const fe = s.p.slice(pn).findIndex(p=>p.is_title)
-  return getLines([
-    s.p.slice(0,pn).reverse().findIndex(p=>p.is_title),
-    fe == -1?undefined:fe
-  ])
+  const t = s.p[pn]
+  const fs = pn-s.p.slice(0,pn).reverse().findIndex(p=>p.is_title && p.indent ==t.indent)-1
+  assertEq(s.p[log(fs)].is_title, true, ' no title')
+  const es = s.p.slice(pn).findIndex(p=>p.indent<t.indent)
+
+  const res =  s.p.slice(fs, es>-1?es+pn:undefined)
+  log(fs,es)
+  log(res)
+  return res
 }
 
 const seekWord = (p:Pelement, c:number) =>
@@ -163,8 +176,6 @@ const cursorMove=(dl:number, dc:number):Update => s=>{
   }
   return setCursor(ln,cn)(s)
 }
-
-
 
 const pushhist:Update = s=> (
   localStorage.setItem('root', stringify(log(s.r))),
@@ -273,12 +284,21 @@ export const view = (putHTML:(el:HTMLElement)=>void) => {
     }));
   }
 
+  const r = 
+   store.get('root') ??
+   root(child('hello', 'hello #world'))
 
-  const r = root()
-  show({
-    r,
-    p: build(r, ['hello'], 1).map(render),
-    cursor: 0,
-    hist: [],
-  })  
+  cc(
+    // toggleLink(1,6,12),
+    // updateLines(3, ([p])=>([{...p, content:"hello world"}])),
+    // updateLines(3, ([p])=>([p,{...p, content:"i love you"}])),
+    // updateLines(4, ([p])=>([p,{...p, content:"fr fr"}])),
+    show
+  )({
+      r,
+      p: build(r, ['hello'], 1).map(render),
+      cursor: 0,
+      store:store,
+      hist: [],
+  })
 }

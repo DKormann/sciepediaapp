@@ -1,5 +1,6 @@
 
 export type Path = string[]
+import { log } from "./helpers"
 
 
 export type Root = {
@@ -31,8 +32,8 @@ export const root = (...children:Child[]):Root => {
   return {path:[], children: children || []}
 }
 
-export const child = (path:Path, Content:string,...children:Child[]):Child => {
-  return {path, Content, children}
+export const child = (path:string, Content:string,...children:Child[]):Child => {
+  return {path:path.split(".") as Path, Content, children}
 }
 
 const displayNode = (node:Root|Child):string => {
@@ -41,7 +42,7 @@ const displayNode = (node:Root|Child):string => {
     return `root(${childrep})`
   }else{
     const n = node as Child
-    return `child(${JSON.stringify(n.path)}, ${JSON.stringify(n.Content)}, ${childrep})`
+    return `child("${n.path.join('.')}", ${JSON.stringify(n.Content)}, ${childrep})`
   }
 }
 
@@ -66,7 +67,6 @@ export const getData = (root:Root, path:Path) => {
 }
 export const setData = (r:Root, n:Child)=>{
   const res = setNode(r, n)
-  localStorage.setItem('root', JSON.stringify(res))
   return res
 }
 
@@ -81,15 +81,14 @@ const assertEq = (a:ND, b:ND, message:string) => assert(JSON.stringify(a) === JS
 {
   console.log("testing");
   chain(
-    root(child(['a'], 'a',  child(['a', 'b'], 'b', child(['a', 'b', 'c'], 'c')))),
+    root(child('a', 'a',  child('a.b', 'b', child('a.b.c','c')))),
 
     r=>assertEq(r, eval(displayNode(r)) as Root, 'display'),
-    r=>assertEq(getNode(r, ['a', 'b', 'c']), child(['a', 'b', 'c'], 'c'), 'getNode',),
-
-    r=>setChild(r, 'ap', child(['ap'], 'ap')),
-    r=>setNode(r, child(['a', 'b', 'c', 'd'], 'd')),
-    r=>setNode(r, child(['a', 'b', 'c', 'd'], 'f')),
-    r=>assertEq(getNode(r, ['a', 'b', 'c', 'd']), child(['a', 'b', 'c', 'd'], 'f'), 'setNode'),
+    r=>assertEq(getNode(r, ['a', 'b', 'c']), child('a.b.c', 'c'), 'getNode'),
+    r=>setChild(r, 'ap', child('ap', 'ap')),
+    r=>setNode(r, child('a.b.c.d', 'd')),
+    r=>setNode(r, child('a.b.c.d', 'f')),
+    r=>assertEq(getNode(r, ['a', 'b', 'c', 'd']), child('a.b.c.d', 'f'), 'setNode'),
     r=>assertEq(getNode(r, []), r, 'getNode root'),
     r=>assert((getNode(r, ['a', 'b']) as Child ).Content === 'b', 'get Content'),
   )
