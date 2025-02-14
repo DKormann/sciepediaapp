@@ -25,12 +25,13 @@ export const stringify = (x:any):string =>
   x instanceof Array?
   `[${
     x.length==0?'':
-    x.map(x=>stringify(x)).join(', ').replaceAll('\n','\n  ')
+    x.map(x=>stringify(x)).join(', ').replace(/\n/g, '\n  ')
+
   }]`:
   x instanceof HTMLElement || x instanceof Node?
   `<${x.nodeName} : "${x.textContent}">`:
   typeof x === 'object'?
-  `{\n  ${Object.entries(x).sort().map(([k,v])=>`${k}:${stringify(v)}`).join(',\n').replaceAll('\n','\n  ')}\n}`
+  `{\n  ${Object.entries(x).sort().map(([k,v])=>`${k}:${stringify(v)}`).join(',\n').replace(/\n/g, '\n  ')}\n}`
   :JSON.stringify(x)
 
 export type LastT <S,T> = [...S[], T]
@@ -38,14 +39,14 @@ export const setAttr=<T>(key:string, value:any)=>(item:T):T=>({...item, [key]:va
 export const last = <T>(arr:LastT<any,T> | T[]):T => arr[arr.length-1]
 
 
-function hash(input: string, seed: bigint = 0xcbf29ce484222325n): bigint {
+function hash(input: string, seed: bigint = BigInt(0x32a48392f08e5)): bigint {
   let hash = seed;
-  const prime = 0x100000001b3n; // FNV prime
+  const prime = BigInt(0x100000001b3); // FNV prime
   for (let i = 0; i < input.length; i++) {
     hash ^= BigInt(input.charCodeAt(i))
     hash *= prime
   }
-  return hash & ((1n << 64n) - 1n)
+  return hash & ((BigInt(1) << BigInt(64)) - BigInt(1))
 }
 
 
@@ -70,13 +71,13 @@ export const uuid=<T >(x:T):T & {id:bigint}=>{
   return _id(x)[0]
 }
 
-// log(hash('a'))
-// log(hash('ab'))
-// log(hash('abcdef'))
+log(hash('a'))
+log(hash('ab'))
+log(hash('abcdef'))
 
-// log(hash(`abcdeflog(hash('abcdef'))`))
-// log(hash(`abcdeflog(hash('abcdef')`))
-// log(hash(`abcdeflog(hash('abcdef'`))
+log(hash(`abcdeflog(hash('abcdef'))`))
+log(hash(`abcdeflog(hash('abcdef')`))
+log(hash(`abcdeflog(hash('abcdef'`))
 
 type BTree<T> = {
   value: T & {id:bigint},

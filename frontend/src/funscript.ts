@@ -510,7 +510,9 @@ export const runfun = (code:string, debug = false)=>{
   if (debug) log({jscode})
   return jscode.and(c=>{
     try{
-      return ok<any>(eval(c.val), c.idx)
+      // return ok<any>(eval(c.val), c.idx)
+      const FN = new Function("return "+c.val)
+      return ok(FN(), c.idx)
     }catch(e){
       return err((e as Error).message, c.idx)
     }

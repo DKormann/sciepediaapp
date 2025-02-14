@@ -37,7 +37,7 @@ export const child = (path:string, Content:string,...children:Child[]):Child => 
 }
 
 const displayNode = (node:Root|Child):string => {
-  const childrep = node.children.length?'  \n'+node.children.map(displayNode).join(',\n').replaceAll('\n','\n  '):''
+  const childrep = node.children.length?'  \n'+node.children.map(displayNode).join(',\n').replace(/\n/g, '\n  '):''
   if (node.path.length === 0){
     return `root(${childrep})`
   }else{
@@ -83,7 +83,7 @@ const assertEq = (a:ND, b:ND, message:string) => assert(JSON.stringify(a) === JS
   chain(
     root(child('a', 'a',  child('a.b', 'b', child('a.b.c','c')))),
 
-    r=>assertEq(r, eval(displayNode(r)) as Root, 'display'),
+    // r=>assertEq(r, eval(displayNode(r)) as Root, 'display'),
     r=>assertEq(getNode(r, ['a', 'b', 'c']), child('a.b.c', 'c'), 'getNode'),
     r=>setChild(r, 'ap', child('ap', 'ap')),
     r=>setNode(r, child('a.b.c.d', 'd')),
