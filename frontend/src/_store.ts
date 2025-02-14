@@ -36,4 +36,26 @@ class PersistantStore {
   }
 }
 
+class TestStore {
+  private _store:Map<string,any>
+  constructor(){
+    this._store = new Map()
+  }
+
+  public get = (key:string):any|null =>{
+    return this._store.get(key) || null
+  }
+
+  public set = (key:string, value:any):TestStore =>{
+    const mapcopy = new Map(this._store)
+    return new TestStore().setStore(new Map(mapcopy.set(key, value)))
+  }
+
+  public setStore = (store:Map<string,any>):TestStore =>{
+    this._store = store
+    return this
+  }
+}
+
 export const store:Store = new PersistantStore(true, null)
+export const teststore:Store = new TestStore()

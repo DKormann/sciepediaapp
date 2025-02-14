@@ -5,7 +5,7 @@ import { htmlElement, htmlKey } from './_html'
 import "./funscript"
 
 import { assertEq, comp, log, last, LastT, stringify, setAttr, uuid} from './helpers'
-import { Store , store} from './_store'
+import { Store , store, teststore} from './_store'
 import { runfun } from './funscript'
 
 
@@ -45,19 +45,19 @@ type Rendered = Pelement & {
 
 const islink = (s:string) => s.startsWith('#') && s.length > 1
 
-const build = (r:Root, path:Path, indent:number):Pelement[] => {
+const buildPage = (r:Root, path:Path, indent:number):Pelement[] => {
   const node = getData(r, path)
   const tit = node.path.join('.')
   return [
     {content:tit,path,indent,is_title:true, children:[], cursor:-1},
     ...node.Content.split('\n').map(c=>({content:c, indent, path, children:[], cursor:-1})),
     ...(last(path) == 'fs' ? 
-    build(r, path.concat(">>>"), indent+1)
+    buildPage(r, path.concat(">>>"), indent+1)
     :[]),
   ]
 }
 
-const render = (par: Pelement):Rendered=>(
+const render = (par: Pelement, style?:string):Rendered=>(
   {...par,
     el: htmlElement('p', '', 'line', {children:[
         ...Array.from({length:par.indent}, _=>htmlElement('div', '', 'pad')),
@@ -66,7 +66,8 @@ const render = (par: Pelement):Rendered=>(
           par.content.split(' ').map(w=>(' '+w).split('').map(c=>htmlElement('span', c, islink(w)?'link':'char'))).flat().slice(1),
           par.cursor, cursor()
         )
-      ]
+      ],
+      ...style?{style}:{}
     }
   )
 })
@@ -86,14 +87,14 @@ const toggleLink = (lnum:number, start:number, end:number):Update=>s0=>{
   return setStateVar('p',[...prev,
     ... (scope <= 0)?[
       {...target, content:target.content.slice(0,end), el:undefined},
-      ...build(s.r, link.slice(1).split("."), target.indent+1).map(render),
+      ...buildPage(s.r, link.slice(1).split("."), target.indent+1).map(p=>render(p)),
       {...target, content:target.content.slice(end), el:undefined},
       ...rest
     ]:[
       render({...target, content: target.content+rest[scope].content, el:undefined}),
       ...rest.slice(scope+1),
     ]
-  ].map(render))(s)
+  ].map(p=>render(p)))(s)
 }
 
 const cursor = ()=>htmlElement('div', '', 'cursor')
@@ -104,6 +105,8 @@ const getLines = (lnum:number|[number,number|undefined]) => (s:State) =>
 const updateLines = (lnum:number|[number,number], f:(p:Pelement[])=>Pelement[]):Update=>s=>
   setLine(lnum, ...f(getLines(lnum)(s)))(s)
 
+
+
 const setLine = (line:number|[number, number], ...lines: Pelement[]):Update=>s=>{
   const [start,end] = (typeof line == 'number')?[line,line+1]:line
   assertEq(end>=start, true, `end>=start ${end}>=${start}`);
@@ -111,7 +114,7 @@ const setLine = (line:number|[number, number], ...lines: Pelement[]):Update=>s=>
   return cc(
     setStateVar('p',[
     ...s.p.slice(0,start),
-    ...lines.map(render),
+    ...lines.map(p=>render(p)),
     ...s.p.slice(end)
     ]),
 
@@ -121,21 +124,30 @@ const setLine = (line:number|[number, number], ...lines: Pelement[]):Update=>s=>
     s=>{
       if (last(lines[0].path) == 'fs'){
         log("running fs")
-        const page = seekPage(start,s)
         try{
-          const res = log(runfun(page.slice(1).map(p=>p.content).join("\n")))
-          log(s.p[start].path)
-          const lpl = lastPageLine(start, s)-1
-          return setLine(log([lpl, lastPageLine(lpl,s)]),
-          ...stringify(res).split("\n").map(
-            c=>({
+          const code = log(getPageText(start, s))
+          log(JSON.stringify(code))
+
+          const exec =(code:string)=>{
+            try{
+              return stringify(runfun(code)).split("\n")
+            }catch(e){
+              console.warn(e)
+              return (e as Error).message.split("\n")
+            }
+          }
+
+          const res = exec(code)
+          const lpl = lastPageLine(start, s)
+          return setLine(log([firstPageLine(lpl, s)+1,lpl+1]),
+          ...res.map(
+            c=>render({
               ...s.p[lpl],
               content:c,
               cursor:-1,
               is_title:undefined,
-            } as Pelement)
+            })
           ))(s)
-         
         }catch(e){
           console.error(e)
         }
@@ -146,8 +158,6 @@ const setLine = (line:number|[number, number], ...lines: Pelement[]):Update=>s=>
     setStateVar('cursor', focusline == -1? s.cursor: start+focusline)
   )(s)
 }
-
-
 
 const cc = <T> (...fs:((a:T)=>T|void)[]) => (a:T) => fs.reduce((r,f)=>f(r)??r,a)
 
@@ -162,8 +172,7 @@ const setCursor = (lnum:number, cnum:number):Update=>cc(
   setAttr('cursor', lnum),
 )
 
-const findLine = (p:Rendered[],y:number):number=>
-  p.findIndex(({el})=>el.clientHeight + el.offsetTop > y)
+const findLine = (p:Rendered[],y:number):number=>p.findIndex(({el})=>el.clientHeight + el.offsetTop > y)
 
 const letters = (p:Rendered) => (Array.from(p.el.children).filter(x=>x.nodeName=='SPAN') as HTMLElement[])
 
@@ -175,20 +184,16 @@ const findChar = (p:Rendered, x:number) =>{
 
 const lastPageLine = (pn:number, s:State) =>{
   const es = s.p.slice(pn).findIndex(p=>p.indent<s.p[pn].indent)
-  return es>-1?es+pn:s.p.length
+  return es>-1?es+pn-1:s.p.length-1
 }
 
-const firstPageLine = (pn:number, s:State) =>{
-  const fs = pn - s.p.slice(0,pn).reverse().findIndex(p=>p.is_title && p.indent == s.p[pn].indent) - 1
-  return fs
-}
+const firstPageLine = (pn:number, s:State) => pn - s.p.slice(0,pn).reverse().findIndex(p=>p.is_title && p.indent == s.p[pn].indent) - 1
 
-const seekPage = (pn:number, s:State) =>
-  log("got page", s.p.slice(firstPageLine(pn, s), lastPageLine(pn, s)).filter(p=>p.indent==s.p[pn].indent))
+const seekPage = (pn:number, s:State) => s.p.slice(firstPageLine(pn, s), lastPageLine(pn, s)+1).filter(p=>p.indent==s.p[pn].indent)
 
+const getPageText = (pn:number, s:State) => seekPage(pn, s).slice(1).map(p=>p.content).join('\n')
 
-const seekWord = (p:Pelement, c:number) =>
-  [c-last(p.content.slice(0,c).split(' ')).length , c+p.content.slice(c).split(' ')[0].length]
+const seekWord = (p:Pelement, c:number) => [c-last(p.content.slice(0,c).split(' ')).length , c+p.content.slice(c).split(' ')[0].length]
 
 type Update = (s:State) => State
 
@@ -216,6 +221,48 @@ const pushhist:Update = s=> (
 uuid(last(s.hist)).id
 ) ?setStateVar('hist', [...s.hist.slice(-10), s])(s):(log('no change'), s))
 
+const flatprint = (p:Rendered[])=> p.map((p,i)=>`${i}:`+"->".repeat(p.indent)+p.content).join("\n")
+
+{
+  // unit tests
+  const r = root(child('hello', 'hello #world #link'), child("link", "link content\nsecond line\n3rd line"))
+  const p = buildPage(r, ['hello'], 1).map(p=>render(p))
+  const s = {
+    r,
+    p,
+    cursor: 0,
+    store:teststore,
+    hist: [],
+  }
+
+  const flatprint = (p:Rendered[])=> p.map((p,i)=>"->".repeat(p.indent)+p.content).join("\n")
+
+  cc<State>(
+    toggleLink(1,13,19),
+    s=>assertEq(flatprint(s.p), `->hello
+->hello #world #link
+->->link
+->->link content
+->->second line
+->->3rd line
+->`, 'toggle link'),
+    s=>assertEq(lastPageLine(0,s), 6, 'lastPageLine'),
+    s=>assertEq(lastPageLine(2,s), 5, 'lastPageLine'),
+    s=>assertEq(lastPageLine(5,s), 5, 'lastPageLine'),
+    s=>assertEq(lastPageLine(6,s), 6, 'lastPageLine'),
+    s=>assertEq(firstPageLine(0,s), 0, 'firstPageLine'),
+    s=>assertEq(firstPageLine(6,s), 0, 'firstPageLine'),
+    s=>assertEq(firstPageLine(5,s), 2, 'firstPageLine'),
+    s=>assertEq(firstPageLine(1,s), 0, 'firstPageLine'),
+    s=>setLine([4,5], {...s.p[4], content:"second #line"})(s),
+    s=>assertEq(flatprint(seekPage(4,s)), `->->link
+->->link content
+->->second #line
+->->3rd line`, 'seekPage'),
+    s=>assertEq(getData(s.r, ["link"]).Content, "link content\nsecond #line\n3rd line", 'set link'),
+  )(s)
+
+}
 
 export const view = (putHTML:(el:HTMLElement)=>void) => {
 
@@ -325,7 +372,7 @@ export const view = (putHTML:(el:HTMLElement)=>void) => {
     show
   )({
       r,
-      p: build(r, ['hello'], 1).map(render),
+      p: buildPage(r, ['hello'], 1).map(p=>render(p)),
       cursor: 0,
       store:store,
       hist: [],

@@ -1,5 +1,5 @@
 import { convertTypeAcquisitionFromJson, ReadonlyUnderscoreEscapedMap } from "typescript"
-import { assertEq, assertErr, log, stringify } from "./helpers"
+import { assertEq, assertErr, last, log, stringify } from "./helpers"
 
 // only well formed expressions
 type expression = 
@@ -104,7 +104,7 @@ const symbolschars = "()+-*/%=!<>?:{}[].,;"
 
 type Ok<T> = {status:"ok", val:T} & Chain<T>
 type Err= {status:"err", val:string, idx:number,
-  then:(fn:(x:any)=>any)=>Err,
+  and:(fn:(x:any)=>any)=>Err,
   or:<T>(def:Result<T>)=>Result<T>
 }
 
@@ -112,7 +112,7 @@ type Result<T> = Ok<T> | Err
 
 type Chain <T> = {
   idx:number,
-  then:<U>(fn:(x:Ok<T>)=>Result<U>)=>Result<U>,
+  and:<U>(fn:(x:Ok<T>)=>Result<U>)=>Result<U>,
   or:(def:Result<T>)=>Result<T>
 }
 
@@ -127,21 +127,26 @@ const ok = <T>(val:T, idx:number):Ok<T> => {
   
   const res = ({
     val, idx, status:"ok",
-    then:(fn)=>fn(ok(val, idx)),
+    and:(fn)=>fn(ok(val, idx)),
     or:(_)=>ok(val, idx)
   } as Ok<T>)
+  assertEq(res.or!=undefined, true, "ok")
   return res
 }
 
-const err = (val:string, idx:number):Err => ({
-  val, idx, status:"err",
-  then:(_:any)=>err(val, idx),
-  or:<T>(def:Result<T>)=>def
-} )
+const err = (val:string, idx:number):Err => {
+  const res ={
+    val, idx, status:"err",
+    and:(_:any)=>err(val, idx),
+    or:<T>(def:Result<T>)=>def
+  } as Err
+  assertEq(res.or!=undefined, true, "err or")
+  return res
+}
 
 
-const parseOk = (val:astnode, idx:number):ParseOk => ok(val, idx)
-const parseErr = (val:string, idx:number):ParseErr => err(val, idx)
+const parseOk = ok<astnode>
+const parseErr = err
 
 
 const naive_parse = (code:string): Result<astnode>=>{
@@ -162,8 +167,9 @@ const naive_parse = (code:string): Result<astnode>=>{
 
   const parse_until_char = (i:number, c:string, type:astop):ParseResult=>{
     const j = code.indexOf(c, i)
-    return j === -1?parseErr("parse_until_char", i):parseOk(lit(type as literal['type'], code.slice(i,j)), nonw(j)+1)
+    return j === -1?parseErr(`parse errror, expected: ${c}`, i):parseOk(lit(type as literal['type'], code.slice(i,j)), nonw(j+1))
   }
+
 
 
   const parse_atom = (i:number):ParseResult => {
@@ -172,10 +178,10 @@ const naive_parse = (code:string): Result<astnode>=>{
     .or(matchparse(i, "false", "boolean"))
     .or(matchparse(i, "null", "null"))
     .or(lookparse(i, c=>(c<='z' && c >='a' || c == '_') || (c<='9' && c >='0') || (c<='Z' && c >='A'),"identifier"))
-    .or((code[i] === '"' && parse_until_char(i+1, '"', "string")) as ParseResult)
-    .or((code[i] === "'" && parse_until_char(i+1, "'", "string")) as ParseResult)
-    .or(parseErr("cant parse atom", i) as ParseResult)
-
+    .or(
+      code[i] === '"' ? parse_until_char(i+1, '"', "string") :
+      code[i] === "'" ? parse_until_char(i+1, "'", "string") :
+      parseErr("cant parse value", i))
   }
 
   const parse_operator = (i:number):[string|undefined,number] =>
@@ -199,12 +205,12 @@ const naive_parse = (code:string): Result<astnode>=>{
     if (next_symbol == "[") {
       const [closer, j] = parse_operator(next.idx)
       if (closer !== "]") return parseErr("expected ]", ni)
-      return parse_continue(parseOk(idx(left.val, next.val), j))
+      return parse_continue(parseOk(idx(left.val, next.val), nonw(j)))
     }
     if (next_symbol == "("){
       const arglist = parse_group(["(", ni])
       if (arglist.status == "err") return parseErr(arglist.val, ni)
-      return parse_continue(parseOk(app(left.val, arglist.val), arglist.idx))
+      return parse_continue(parseOk(app(left.val, arglist.val), nonw(arglist.idx)))
     }
 
     if (tertiary_symbols.includes(next_symbol)){
@@ -257,7 +263,7 @@ const naive_parse = (code:string): Result<astnode>=>{
       return err("cant parse", i)
     }
     const items = parse_items(i)
-    return items.then((items:Ok<astnode[]>)=>ok(comp(type, ...items.val) as astnode, items.idx))
+    return items.and((items:Ok<astnode[]>)=>ok(comp(type, ...items.val) as astnode, items.idx))
   }
 
 
@@ -267,15 +273,14 @@ const naive_parse = (code:string): Result<astnode>=>{
     if (os != undefined){
       if (unary_symbols.includes(os)){
         const ex = parse_expression(on)
-        return ex.then((ex:Ok<astnode>)=>
+        return ex.and((ex:Ok<astnode>)=>
           parse_continue(parseOk(newunary(os as unaryop, ex.val), ex.idx)))
       }
       if(!group_symbols.includes(os)) return parseErr("cant parse", i)
       return parse_continue(parse_group([os, on]) as ParseOk)
     }
 
-    const start = parse_atom(i)
-    return start.then((start:Ok<astnode>)=>parse_continue(start))
+    return (parse_atom(i)).and((start:Ok<astnode>)=>parse_continue(start))
 
   }
 
@@ -286,10 +291,6 @@ const naive_parse = (code:string): Result<astnode>=>{
     code[i].trim().length ? i:nonw(i+1)
 
 
-//   const res = parse_expression(nonw(0))
-//   if (!res) throw new Error("cant parse"+ code)
-//   if (res[1] !== code.length) throw new Error("unexpected token after end of expression: "+ code.slice(res[1]))
-//   return res[0]
   const res = parse_expression(nonw(0))
   if (res.status == "err") return res
   
@@ -300,12 +301,12 @@ const naive_parse = (code:string): Result<astnode>=>{
   return res
 }
 
-
 const nice_error = (code:string, err:Err):string =>{
-  const precode = code.slice(0, err.idx)
+  log(JSON.stringify(code))
+  const precode = code.slice(0, err.idx).trimEnd()
   const lines = precode.split('\n')
-  const line = lines.length
-  const col = lines[line-1].length
+  const line = lines.length-1
+  const col = lines[line].length
   return `ERROR: ${err.val} at line ${line},\n${code.split('\n')[line]}\n${" ".repeat(col)}^`
 }
 
@@ -348,14 +349,11 @@ const rearange = (node:astnode):astnode => {
   return res as expression
 }
 
-// const parse = (code:string):expression => rearange(naive_parse(code)[0]) as expression
 const parse = (code:string):expression => {
   const no = naive_parse(code)
   if (no.status == "err") throw new Error(nice_error(code, no))
   return rearange(no.val) as expression
 }
-
-
 
 const buildjs = (ast:astnode):string =>{
 
@@ -367,7 +365,7 @@ const buildjs = (ast:astnode):string =>{
   ast.type == "string" ? `"${(ast as literal).value}"`:
   ast.type == "identifier" ? (ast as identifier).value:
   ast.type == ":" ? sfill(`{}:{}`, ...ast.children):
-  ast.type == "{}" ? `{${ast.children.map(buildjs).join(",")}}`:
+  ast.type == "{}" ? `({${ast.children.map(buildjs).join(",")}})`:
   ast.type == "[]" ? `[${ast.children.map(buildjs).join(",")}]`:
   ast.type == "idx" ? sfill(`({}[{}])`, ...ast.children):
   ast.type == "?:" ? sfill(`({}?{}:\n{})`, ...ast.children):
@@ -480,8 +478,8 @@ const testCompile = (code:string, expected: string)=>{
 testCompile("14 ", "14")
 testCompile("1 + 2", "(1+2)")
 testCompile("1 * 2 + 3", "((1*2)+3)")
-testCompile("{a:1, b:2}", '{"a":1,"b":2}')
-testCompile("{a, ...b}", '{"a":a,...b}')
+testCompile("{a:1, b:2}", '({"a":1,"b":2})')
+testCompile("{a, ...b}", '({"a":a,...b})')
 
 testCompile("x.y", '(x["y"])')
 testCompile("x[y]", '(x[y])')
@@ -505,13 +503,19 @@ testCompile("[-x, !true]", '[-x,!true]')
 testCompile("a.b(22)", '((a["b"])(22))')
 testCompile("a.b(f(22))", '((a["b"])((f(22))))')
 
+testCompile('"hello " + "world"', '("hello "+"world")')
+
+
+compile('2x')
+
+// testCompile('"abc', )
+
 let expr = (s:string) => (eval(
   log
   (buildjs(parse(s)))))
 
-
 export const runfun = (code:string, debug = false)=>{
   const jscode = compile(code)
-  if (debug) log(jscode)
+  if (debug) log({jscode})
   return eval(jscode)
 }
