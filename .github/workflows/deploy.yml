@@ -5,6 +5,8 @@ on:
     branches:
       - main  # Trigger on push to main
 
+
+      
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
