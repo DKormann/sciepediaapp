@@ -21,6 +21,7 @@ export const log=<T>(...x:LastT<any,T>)=>(
 export const stringify = (x:any):string =>
   x == undefined? 'undefined':
   typeof x  == 'bigint'? x.toString()+'n':
+  typeof x  == 'function'? x.toString():
   x instanceof Array?
   `[${
     x.length==0?'':
