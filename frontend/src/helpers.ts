@@ -3,7 +3,7 @@ import { htmlElement } from "./_html"
 // export const comp = (a:any, p:any) => JSON.stringify(a) === JSON.stringify(p)
 export const comp = (a:any, b:any) => stringify(a) == stringify(b)
 
-export const assertEq = (a:any, b:any,msg?:string) => {
+export const assertEq =<T> (a:T, b:T,msg?:string) => {
   if (!comp(a,b)) throw new Error("\n  "+stringify(a)+ "\n!="+stringify(b)+ (msg?"\n"+msg:""))
   }
 

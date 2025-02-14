@@ -1,4 +1,3 @@
-import { convertTypeAcquisitionFromJson, ReadonlyUnderscoreEscapedMap } from "typescript"
 import { assertEq, assertErr, last, log, stringify } from "./helpers"
 
 // only well formed expressions
@@ -167,10 +166,8 @@ const naive_parse = (code:string): Result<astnode>=>{
 
   const parse_until_char = (i:number, c:string, type:astop):ParseResult=>{
     const j = code.indexOf(c, i)
-    return j === -1?parseErr(`parse errror, expected: ${c}`, i):parseOk(lit(type as literal['type'], code.slice(i,j)), nonw(j+1))
+    return j === -1?parseErr(`parse error, expected: ${c}`, i):parseOk(lit(type as literal['type'], code.slice(i,j)), nonw(j+1))
   }
-
-
 
   const parse_atom = (i:number):ParseResult => {
     return lookparse(i, c=>c<='9' && c>='0', "number")
@@ -284,7 +281,6 @@ const naive_parse = (code:string): Result<astnode>=>{
 
   }
 
-
   const nonw = (i:number):number=> code[i] == undefined? i:
     code[i] == '/' && code[i+1] == '/' ? nonw(code.indexOf('\n', i+1)):
     code[i] == '/' && code[i+1] == '*' ? nonw(code.indexOf('*/', i+1)+2):
@@ -295,19 +291,17 @@ const naive_parse = (code:string): Result<astnode>=>{
   if (res.status == "err") return res
   
   if (res.idx != code.length){
-    log(res.val)
     return parseErr("unexpected token after end of expression: "+ code.slice(res.idx), res.idx)
   }
   return res
 }
 
-const nice_error = (code:string, err:Err):string =>{
-  log(JSON.stringify(code))
+export const nice_error = (code:string, err:Err):string =>{
   const precode = code.slice(0, err.idx).trimEnd()
   const lines = precode.split('\n')
   const line = lines.length-1
   const col = lines[line].length
-  return `ERROR: ${err.val} at line ${line},\n${code.split('\n')[line]}\n${" ".repeat(col)}^`
+  return `ERROR: ${err.val} at line ${line+1},\n${code.split('\n')[line]}\n${" ".repeat(col)}^`
 }
 
 const operator_weight = (op:astop):number =>
@@ -349,11 +343,8 @@ const rearange = (node:astnode):astnode => {
   return res as expression
 }
 
-const parse = (code:string):expression => {
-  const no = naive_parse(code)
-  if (no.status == "err") throw new Error(nice_error(code, no))
-  return rearange(no.val) as expression
-}
+const parse = (code:string):ParseResult =>
+  naive_parse(code).and(x=>ok(rearange(x.val), x.idx))
 
 const buildjs = (ast:astnode):string =>{
 
@@ -376,7 +367,8 @@ const buildjs = (ast:astnode):string =>{
   "<unknown>"
 }
 
-const compile = (code:string):string => buildjs(parse(code))
+const compile = (code:string):Result<string> => 
+  parse(code).and(x=>ok(buildjs(x.val), x.idx))
 
 {
   const testRearange = (ast:astnode, expected:expression)=>{
@@ -436,10 +428,12 @@ const compile = (code:string):string => buildjs(parse(code))
 
   const testParse = (code:string, expected: any)=>{
     const res = parse(code)
+    if (res.status == "err") console.error(nice_error(code, res))
+
     try{
-      assertEq (res, ex(expected), '')
+      assertEq (res.val, ex(expected), '')
     }catch(e){
-      console.error("parse fail on "+ code + " =>\n"+ buildjs(res) + " !=\n"+ buildjs(ex(expected)))
+      console.error("parse fail on "+ code + " =>\n"+ buildjs((res as ParseOk).val) + " !=\n"+ buildjs(ex(expected)))
     }
   }
 
@@ -462,17 +456,19 @@ const compile = (code:string):string => buildjs(parse(code))
 
 }
 const testCompile = (code:string, expected: string)=>{
-  try{
-    const res = compile(code)
-    try {
-      assertEq(res, expected, " in compiling " + code)
-    }catch(e){
-      console.error("unexpected result compiliing "+code+ " =>\n"+ res + " !=\n"+ expected)
-    }
+  const res = compile(code)
+  if (res.status == "err") console.error(nice_error(code, res))
+  try {
+    assertEq(res.val, expected, " in compiling " + code)
   }catch(e){
-    console.error("compiliing "+code+ " =>\n"+ e)
-    throw(e)
+    console.error("unexpected result compiliing "+code+ " =>\n"+ res + " !=\n"+ expected)
   }
+}
+
+const assertCompileErr = (code:string, expected: string)=>{
+  const res = compile(code)
+  if (res.status == "ok") console.error("expected error in "+ code)
+  else assertEq(res.val, expected, " in compiling " + code)
 }
 
 testCompile("14 ", "14")
@@ -506,16 +502,17 @@ testCompile("a.b(f(22))", '((a["b"])((f(22))))')
 testCompile('"hello " + "world"', '("hello "+"world")')
 
 
-compile('2x')
+assertCompileErr('"abc', `parse error, expected: "`)
 
-// testCompile('"abc', )
-
-let expr = (s:string) => (eval(
-  log
-  (buildjs(parse(s)))))
 
 export const runfun = (code:string, debug = false)=>{
   const jscode = compile(code)
   if (debug) log({jscode})
-  return eval(jscode)
+  return jscode.and(c=>{
+    try{
+      return ok<any>(eval(c.val), c.idx)
+    }catch(e){
+      return err((e as Error).message, c.idx)
+    }
+  })
 }

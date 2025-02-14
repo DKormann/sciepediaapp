@@ -6,7 +6,7 @@ import "./funscript"
 
 import { assertEq, comp, log, last, LastT, stringify, setAttr, uuid} from './helpers'
 import { Store , store, teststore} from './_store'
-import { runfun } from './funscript'
+import { nice_error, runfun } from './funscript'
 
 
 
@@ -125,21 +125,13 @@ const setLine = (line:number|[number, number], ...lines: Pelement[]):Update=>s=>
       if (last(lines[0].path) == 'fs'){
         log("running fs")
         try{
-          const code = log(getPageText(start, s))
-          log(JSON.stringify(code))
+          const code = getPageText(start, s)
 
-          const exec =(code:string)=>{
-            try{
-              return stringify(runfun(code)).split("\n")
-            }catch(e){
-              console.warn(e)
-              return (e as Error).message.split("\n")
-            }
-          }
-
-          const res = exec(code)
+          const ret = runfun(code)
+          // const ret = {"status":"err","val":"not implemented"}
+          const res = (ret.status == "err" ? nice_error(code, ret) : stringify(ret.val)).split("\n")
           const lpl = lastPageLine(start, s)
-          return setLine(log([firstPageLine(lpl, s)+1,lpl+1]),
+          return setLine([firstPageLine(lpl, s)+1,lpl+1],
           ...res.map(
             c=>render({
               ...s.p[lpl],
