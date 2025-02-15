@@ -356,13 +356,15 @@ const buildjs = (ast:astnode):string =>{
   ast.type == "string" ? `"${(ast as literal).value}"`:
   ast.type == "identifier" ? (ast as identifier).value:
   ast.type == ":" ? sfill(`{}:{}`, ...ast.children):
-  ast.type == "{}" ? `({${ast.children.map(buildjs).join(",")}})`:
+  ast.type == "{}" ? `{${ast.children.map(buildjs).join(",")}}`:
   ast.type == "[]" ? `[${ast.children.map(buildjs).join(",")}]`:
   ast.type == "idx" ? sfill(`({}[{}])`, ...ast.children):
   ast.type == "?:" ? sfill(`({}?{}:\n{})`, ...ast.children):
   ast.type == "=;" ? sfill(`(()=>{const {}={};\nreturn {}})()`, ...ast.children):
   ast.type == "arglist" ? `(${ast.children.map(buildjs).join(",")})`:
-  ast.arity == 2 ? sfill(`({}${ast.type == "app"?"":ast.type}{})`, ...ast.children):
+  ast.arity == 2 ? sfill(`({}${ast.type == "app"?"":ast.type}${
+    ast.type == "=>" ? "({})" : "{}"
+  })`, ...ast.children):
   ast.arity == 1 ? sfill(`${ast.type}{}`, ...ast.children):
   "<unknown>"
 }
@@ -461,7 +463,7 @@ const testCompile = (code:string, expected: string)=>{
   try {
     assertEq(res.val, expected, " in compiling " + code)
   }catch(e){
-    console.error("unexpected result compiliing "+code+ " =>\n"+ res + " !=\n"+ expected)
+    console.error("unexpected result compiliing "+code+ " =>\n"+ res.val + " !=\n"+ expected)
   }
 }
 
@@ -474,13 +476,13 @@ const assertCompileErr = (code:string, expected: string)=>{
 testCompile("14 ", "14")
 testCompile("1 + 2", "(1+2)")
 testCompile("1 * 2 + 3", "((1*2)+3)")
-testCompile("{a:1, b:2}", '({"a":1,"b":2})')
-testCompile("{a, ...b}", '({"a":a,...b})')
+testCompile("{a:1, b:2}", '{"a":1,"b":2}')
+testCompile("{a, ...b}", '{"a":a,...b}')
 
 testCompile("x.y", '(x["y"])')
 testCompile("x[y]", '(x[y])')
-testCompile("x=>y", '(x=>y)')
-testCompile("x=>x.y", '(x=>(x["y"]))')
+testCompile("x=>y", '(x=>(y))')
+testCompile("x=>x.y", '(x=>((x["y"])))')
 
 testCompile("1 > 2 ? 3 : 4", '((1>2)?3:\n4)')
 testCompile("1>2?3:4", '((1>2)?3:\n4)')
@@ -489,7 +491,7 @@ testCompile('fn(22)', '(fn(22))')
 testCompile('"a"+"b"', '("a"+"b")')
 testCompile('a.b', '(a["b"])')
 
-testCompile('n=>n<2?n:2', '(n=>((n<2)?n:\n2))')
+testCompile('n=>n<2?n:2', '(n=>(((n<2)?n:\n2)))')
 testCompile('fn(x-2)', '(fn((x-2)))')
 
 testCompile('[fn(x),2]', '[(fn(x)),2]')
@@ -500,10 +502,19 @@ testCompile("a.b(22)", '((a["b"])(22))')
 testCompile("a.b(f(22))", '((a["b"])((f(22))))')
 
 testCompile('"hello " + "world"', '("hello "+"world")')
-
-
 assertCompileErr('"abc', `parse error, expected: "`)
 
+const testEval = (code:string, result:any) =>{
+  const fs = compile(code)
+  if(fs.status == "err") throw new Error(nice_error(code, fs));
+  log(fs.val)
+  assertEq(Function('return '+fs.val)(), result)
+}
+  
+testEval("22",22)
+testEval("[a,b]=[1,2]; a", 1)
+testEval("{e} = {e:44};e", 44)
+testEval('(x=>{x})(33)', {x:33})
 
 export const runfun = (code:string, debug = false)=>{
   const jscode = compile(code)
