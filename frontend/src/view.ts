@@ -47,6 +47,7 @@ const islink = (s:string) => s.startsWith('#') && s.length > 1
 
 const buildPage = (r:Root, path:Path, indent:number):Pelement[] => {
   const node = getData(r, path)
+  log(node)
   const tit = node.path.join('.')
   return [
     {content:tit,path,indent,is_title:true, children:[], cursor:-1},
@@ -105,8 +106,6 @@ const getLines = (lnum:number|[number,number|undefined]) => (s:State) =>
 const updateLines = (lnum:number|[number,number], f:(p:Pelement[])=>Pelement[]):Update=>s=>
   setLine(lnum, ...f(getLines(lnum)(s)))(s)
 
-
-
 const setLine = (line:number|[number, number], ...lines: Pelement[]):Update=>s=>{
   const [start,end] = (typeof line == 'number')?[line,line+1]:line
   assertEq(end>=start, true, `end>=start ${end}>=${start}`);
@@ -123,26 +122,7 @@ const setLine = (line:number|[number, number], ...lines: Pelement[]):Update=>s=>
       seekPage(start,s).slice(1).map(p=>p.content).join("\n"))))(s),
     s=>{
       if (last(lines[0].path) == 'fs'){
-        log("running fs")
-        try{
-          const code = getPageText(start, s)
-
-          const ret = runfun(code)
-          // const ret = {"status":"err","val":"not implemented"}
-          const res = (ret.status == "err" ? nice_error(code, ret) : stringify(ret.val)).split("\n")
-          const lpl = lastPageLine(start, s)
-          return setLine([firstPageLine(lpl, s)+1,lpl+1],
-          ...res.map(
-            c=>render({
-              ...s.p[lpl],
-              content:c,
-              cursor:-1,
-              is_title:undefined,
-            })
-          ))(s)
-        }catch(e){
-          console.error(e)
-        }
+        return runscript(s,start)
       }
       return s
     },
@@ -150,6 +130,28 @@ const setLine = (line:number|[number, number], ...lines: Pelement[]):Update=>s=>
     setStateVar('cursor', focusline == -1? s.cursor: start+focusline)
   )(s)
 }
+
+const runscript =(s:State, start:number)=> {
+  log("running fs")
+  try{
+    const code = getPageText(start, s)
+    const ret = runfun(code)
+    const res = (ret.status == "err" ? nice_error(code, ret) : stringify(ret.val)).split("\n")
+    const lpl = lastPageLine(start, s)
+    return setLine([firstPageLine(lpl, s)+1,lpl+1],
+    ...res.map(
+      c=>render({
+        ...s.p[lpl],
+        content:c,
+        cursor:-1,
+        is_title:undefined,
+      })
+    ))(s)
+  }catch(e){
+    console.error(e)
+  }
+}
+
 
 const cc = <T> (...fs:((a:T)=>T|void)[]) => (a:T) => fs.reduce((r,f)=>f(r)??r,a)
 
@@ -357,14 +359,20 @@ export const view = (putHTML:(el:HTMLElement)=>void) => {
   }
 
   const r = 
-   store.get('root') ??
-   root(child('hello', 'hello #world'))
+  store.get('root') ??
+  root(
+    child('hello', 'hello #world'),
+    
+    child('script.fs', "\nfib = (n) =>\n  n<2 ? n :\n  fib(n-1) + fib(n-2);\n\nfastfib = (n) =>\n  _fib = n =>\n    n == 0 ? [1,0]:\n    [a,b] = _fib(n-1);\n    [b,a+b];\n  _fib(n)[0];\n\n\n[fib(7), fastfib(70)]\n"),
+    child('script.fs.>>>',"RESULT")
+)
+  log(getData(r, ['script.fs']))
 
   cc(
     show
   )({
       r,
-      p: buildPage(r, ['hello'], 1).map(p=>render(p)),
+      p: buildPage(r, ['script', 'fs'], 1).map(p=>render(p)),
       cursor: 0,
       store:store,
       hist: [],

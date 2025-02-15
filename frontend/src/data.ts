@@ -28,13 +28,12 @@ const getNode = (root:Root, path:Path):Child|Root =>{
   return getChild(getNode(root, path.slice(0,-1)), path[path.length-1])
 }
 
-export const root = (...children:Child[]):Root => {
-  return {path:[], children: children || []}
-}
+export const root = (...children:Child[]):Root =>
+  children.reduce(setNode, {path:[], children:[]} as Root)
 
-export const child = (path:string, Content:string,...children:Child[]):Child => {
-  return {path:path.split(".") as Path, Content, children}
-}
+
+export const child = (path:string, Content:string,...children:Child[]):Child=> 
+  ({path:path.split(".") as Path, Content, children})
 
 const displayNode = (node:Root|Child):string => {
   const childrep = node.children.length?'  \n'+node.children.map(displayNode).join(',\n').replace(/\n/g, '\n  '):''
@@ -76,7 +75,8 @@ const print = (node:Root|Child) => console.log(displayNode(node))
 const assert = (condition:boolean, message:string) => {
   if (!condition) console.error(message)
 }
-const assertEq = (a:ND, b:ND, message:string) => assert(JSON.stringify(a) === JSON.stringify(b), message + `:\n${displayNode(a)}\n!=\n${displayNode(b)}`)
+
+import { assertEq } from "./helpers"
 
 {
   console.log("testing");
@@ -89,6 +89,10 @@ const assertEq = (a:ND, b:ND, message:string) => assert(JSON.stringify(a) === JS
     r=>setNode(r, child('a.b.c.d', 'd')),
     r=>setNode(r, child('a.b.c.d', 'f')),
     r=>assertEq(getNode(r, ['a', 'b', 'c', 'd']), child('a.b.c.d', 'f'), 'setNode'),
+    r=>setNode(r, child('f.f.f.f', 'f')),
+
+    r=>assertEq(getNode(r, ['f','f']).children.length, 1, 'setNode'),
+
     r=>assertEq(getNode(r, []), r, 'getNode root'),
     r=>assert((getNode(r, ['a', 'b']) as Child ).Content === 'b', 'get Content'),
   )

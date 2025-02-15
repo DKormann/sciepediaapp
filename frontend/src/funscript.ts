@@ -426,8 +426,6 @@ const compile = (code:string):Result<string> =>
   testRearange(alu("*", 1, alu("+", 2, 3)), alu("+", alu("*", 1, 2), 3))
   testRearange(alu("+", 2, lam(idn("x"), 2)), alu("+", 2, lam(idn("x"), 2)))
 
-
-
   const testParse = (code:string, expected: any)=>{
     const res = parse(code)
     if (res.status == "err") console.error(nice_error(code, res))
@@ -522,7 +520,6 @@ export const runfun = (code:string, debug = false)=>{
   if (debug) log({jscode})
   return jscode.and(c=>{
     try{
-      // return ok<any>(eval(c.val), c.idx)
       const FN = new Function("return "+c.val)
       return ok(FN(), c.idx)
     }catch(e){
