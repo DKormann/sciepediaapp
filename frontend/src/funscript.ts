@@ -115,8 +115,6 @@ type Chain <T> = {
   or:(def:Result<T>)=>Result<T>
 }
 
-
-
 type ParseOk = Ok<astnode>
 type ParseErr = Err
 type ParseResult = Result<astnode>
@@ -137,7 +135,7 @@ const err = (val:string, idx:number):Err => {
   const res ={
     val, idx, status:"err",
     and:(_:any)=>err(val, idx),
-    or:<T>(def:Result<T>)=>def
+    or:<T>(def:Result<T>)=>def.idx > idx?def:err(val, idx)
   } as Err
   assertEq(res.or!=undefined, true, "err or")
   return res
@@ -161,7 +159,6 @@ const naive_parse = (code:string): Result<astnode>=>{
 
   const match = (s:string)=>(i:number):Boolean => code.slice(i, i+s.length) === s
   const matchparse = (i:number, s:string, t:literalop):ParseResult=>
-    // (match(s)(i) && parseOk(lit(t, s), nonw(i+s.length)))
     match(s)(i)?parseOk(lit(t, s), nonw(i+s.length)):parseErr(`cant parse ${s}`, i)
 
   const parse_until_char = (i:number, c:string, type:astop):ParseResult=>{
@@ -213,7 +210,8 @@ const naive_parse = (code:string): Result<astnode>=>{
     if (tertiary_symbols.includes(next_symbol)){
       const op2 = next_symbol=='='?';':':'
       const [ns2, nni] = parse_operator(next.idx)
-      if (ns2 !== op2) return parseErr("expected \""+ op2+"\", found: \""+ ns2 + "\"", ni)
+      if (ns2 == undefined) return parseErr("expected \""+ op2+"\", found: end of input", next.idx)
+      if (ns2 !== op2) return parseErr("expected \""+ op2+"\", found: \""+ ns2 + "\"", next.idx)
       const right = parse_expression(nni)
       if (right.status == "err") return right
       return parse_continue(parseOk(newtertiary(next_symbol+ns2 as tertiaryop, left.val, next.val, right.val), right.idx))
