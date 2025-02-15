@@ -13,6 +13,12 @@ type expression =
   | arr // [1,2,3]
   | obj // {a:1, b:2}
   | index // x.y | x[2]
+  // | syntaxerror
+
+
+
+// type syntaxerror = {type:"syntaxerror", message:string}
+
 
 // any subexpression
 type ast <op extends astop, n extends number> = {type:op, arity: n, children: astnode[]}
@@ -299,7 +305,7 @@ export const nice_error = (code:string, err:Err):string =>{
   const lines = precode.split('\n')
   const line = lines.length-1
   const col = lines[line].length
-  return `ERROR: ${err.val} at line ${line+1},\n${code.split('\n')[line]}\n${" ".repeat(col)}^`
+  return `Syntax Error: ${err.val} at line ${line+1},\n${code.split('\n')[line]}\n${" ".repeat(col)}^`
 }
 
 const operator_weight = (op:astop):number =>
@@ -366,6 +372,8 @@ const buildjs = (ast:astnode):string =>{
   ast.arity == 1 ? sfill(`${ast.type}{}`, ...ast.children):
   "<unknown>"
 }
+
+
 
 const compile = (code:string):Result<string> => 
   parse(code).and(x=>ok(buildjs(x.val), x.idx))
