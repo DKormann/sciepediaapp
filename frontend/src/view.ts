@@ -8,8 +8,6 @@ import { assertEq, comp, log, last, LastT, stringify, setAttr, uuid} from './hel
 import { Store , store, teststore} from './_store'
 import { nice_error, runfun } from './funscript'
 
-
-
 const max = Math.max
 const abs = Math.abs
 
