@@ -515,7 +515,7 @@ testEval("22",22)
 testEval("[a,b]=[1,2]; a", 1)
 testEval("{e} = {e:44};e", 44)
 testEval('(x=>{x})(33)', {x:33})
-testEval("x=>[1,2](11)", [1,2])
+testEval("(x=>[1,2])(11)", [1,2])
 
 export const runfun = (code:string, debug = false)=>{
   const jscode = compile(code)
