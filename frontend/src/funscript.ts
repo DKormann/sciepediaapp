@@ -106,7 +106,6 @@ const symbols = [ ...unary_symbols, ...binary_symbols, ...tertiary_symbols, ...t
 const symbolschars = "()+-*/%=!<>?:{}[].,;"
 
 
-
 type Ok<T> = {status:"ok", val:T} & Chain<T>
 type Err= {status:"err", val:string, idx:number,
   and:(fn:(x:any)=>any)=>Err,
