@@ -71,13 +71,13 @@ export const uuid=<T >(x:T):T & {id:bigint}=>{
   return _id(x)[0]
 }
 
-log(hash('a'))
-log(hash('ab'))
-log(hash('abcdef'))
+// log(hash('a'))
+// log(hash('ab'))
+// log(hash('abcdef'))
 
-log(hash(`abcdeflog(hash('abcdef'))`))
-log(hash(`abcdeflog(hash('abcdef')`))
-log(hash(`abcdeflog(hash('abcdef'`))
+// log(hash(`abcdeflog(hash('abcdef'))`))
+// log(hash(`abcdeflog(hash('abcdef')`))
+// log(hash(`abcdeflog(hash('abcdef'`))
 
 type BTree<T> = {
   value: T & {id:bigint},
@@ -117,3 +117,43 @@ export const redi = <T>(n:number, fn:(acc:T, i:number)=>T, acc:T=0 as T):T => Ar
 
 
 // export const 
+
+export type Ok<T> = {
+  ok: true
+  value: T
+
+  and: <U>(f:(r:Ok<T>)=>Res<U>)=>Res<U>
+  or: (r:Res<T>)=>Ok<T>
+}
+
+export type Err = {
+  ok:false
+  value: string
+
+  and: (f:(r:Ok<any>)=>any)=>Err
+  or: <T> (r:Res<T>)=>Res<T>
+}
+
+export type Res<T> = {
+  ok: boolean
+  value: T | string
+
+  and: <U>(f:(r:Ok<T>)=>Res<U>)=>Res<U>
+  or: (r:Res<T>)=>Res<T>
+}
+
+
+export const ok = <T>(value:T):Ok<T> => ({
+  ok: true,
+  value,
+  and: <U>(f:(r:Ok<T>) => Res<U>)=>f(ok(value)),
+  or: (r:Res<T>) => ok(value)
+})
+
+
+export const err = (value:string):Err => ({
+  ok: false,
+  value,
+  and: f=>err(value),
+  or: <T>(r:Res<T>) => r
+})
