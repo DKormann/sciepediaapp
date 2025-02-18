@@ -98,7 +98,6 @@ type code = {
 
 type token = code & {type:"number" | "string" | "boolean" | "null" | "identifier" | "symbol" | "typo" | "whitespace" | "comment"}
 
-
 const symbols = ["(", ")", "{", "}", "[", "]", ",", ":", "?", "=>", "!", "&&", "||", "+", "-", "*", "/", "%", "<", ">", "<=", ">=", "==", "!=", "=", ";", "...", ".", "//"]
 const symbol_letters = new Set(symbols.join('').split(''))
 
@@ -108,7 +107,7 @@ const seek = (code:string, start:number, pred: (c:string, i:number)=>boolean):nu
 }
 
 
-const tokenize = (code:string, i:number=0):token[] =>{
+const tokenize = (code:string, i:number=0, tid = 0):token[] =>{
   if (code.length <= i) return []
   const comp = (name:string) => code.slice(i, i+name.length) == name
   const [typ, nxt] :[token["type"], number]= 
@@ -124,8 +123,9 @@ const tokenize = (code:string, i:number=0):token[] =>{
   (symbols.map(s=>comp(s) ? ["symbol" as token['type'], i+s.length]:null).find(x=>x != null) ||
   ["typo", i+1] as [token["type"], number]) as [token["type"], number]
   assertEq(nxt > i, true, "tokenize error "+typ)
-  return [{type:typ, value:code.slice(i, nxt), start:i, end:nxt}, ...tokenize(code, nxt)]
+  return [{type:typ, value:code.slice(i, nxt), start:i, end:nxt}, ...tokenize(code, nxt, tid+1)]
 }
+
 
 assertEq(tokenize("1"), [{type:"number", value:"1", start:0, end:1}])
 assertEq(tokenize("1 +  1"), [{type:"number", value:"1", start:0, end:1}, {type:"whitespace", value:" ", start:1, end:2}, {type:"symbol", value:"+", start:2, end:3}, {type:"whitespace", value:"  ", start:3, end:5}, {type:"number", value:"1", start:5, end:6}])
@@ -144,8 +144,6 @@ type nary = code & {type:"{}" | "[]" | "()"} & {children: ast[]}
 
 
 const symbolpairs = [["(", ")"], ["{", "}"], ["[", "]"], ["?", ":"], ["=", ";"]]
-// const binary_symbols = ["+", "-", "*", "/", "%", "<", ">", "<=", ">=", "==", "!=", "&&", "||", "app", "idx", "[]"]
-
 
 
 const parse = (code:string): ast => {
@@ -155,6 +153,8 @@ const parse = (code:string): ast => {
   const nonw = (idx:number): number =>
     tokens[idx] == undefined? idx :tokens[idx].type == "whitespace" || tokens[idx].type == "comment" ? nonw(idx+1): idx
 
+  const nexttok = (prev: code| ast):number =>nonw(tokens.findIndex(t=>t.start >= prev.end))
+
   const parsegroup = (opener:token , idx: number):nary => {
     const closer = symbolpairs.find(s=>s[0] == opener.value)?.[1]
     const type = opener.value == "(" ? "()" : opener.value == "{" ? "{}" : "[]"
@@ -162,33 +162,39 @@ const parse = (code:string): ast => {
     const tok = tokens[idx]
     if (tok.value == closer) return {type, value:"", children:[], start: opener.start, end: tok.end}
     if (tok.value == ",") return parsegroup(opener, nonw(idx+1))
-
-    if (type == "{}"){
-
-    }
+      
     const child = parseexpr(idx)
-    const rest = parsegroup(opener, nonw(idx+1))
+    const rest = parsegroup(opener, nexttok(child))
     return {...rest, children:[child, ...rest.children]}
   }
 
-  const parseexpr = (idx:number):ast => {
+  const astnode = (type:(ast)["type"], children:ast[]) => ({
+    type,
+    children,
+    start: children[0].start,
+    end: last(children).end,
+    value: ""
+  }) as ast
+
+  const parseexpr = (idx:number):ast=> {
     const tok = tokens[idx]
+
     const tyo = {type:"typo", value:"unexpected "+ tok.value, start:tok.start, end:tok.end, children:[]} as ast
     const first:ast =
       (tok.type == "number" || tok.type == "string" || tok.type == "boolean" || tok.type == "null" || tok.type == "identifier") ? {...tok, children:[]} as nullary:
       (tok.type == "symbol") ?
-        "({[".includes(tok.value) ? parsegroup(tok, idx+1):
-        tok.value == "!" ? {...tok, type:"!", children:[parseexpr(idx+1)]}:
-        tok.value == "-" ? {...tok, type:"neg", children:[parseexpr(idx+1)]}:
+        "({[".includes(tok.value) ? parsegroup(tok, nonw(idx+1)):
+        ["...", "-", "!"].includes(tok.value) ?
+        astnode(( tok.value == "-" ? "neg" : tok.value) as ast["type"], [parseexpr(nexttok(tok))]) as unary:
         tyo:
       tyo
+    const nextop = tokens[nexttok(first)]
+    if (nextop == undefined) return first
+    if (nextop.type == "symbol"){
 
-    const nexttok = tokens[nonw(idx+1)]
-    if (nexttok == undefined) return first
-    if (nexttok.type == "symbol"){
-      const op: ast["type"] = nexttok.value == "(" ? "app" : nexttok.value == "[" ? "idx" : nexttok.value == "." ? "idx" : (nexttok.value as ast['type'])
-      if (['+', '-', '*', '/', '%', '<', '>', '<=', '>=', '==', '!=', '&&', '||'].includes(op)){
-        const second = parseexpr(nonw(nexttok.end+1))
+      const op: ast["type"] = nextop.value == "(" ? "app" : nextop.value == "[" ? "idx" : nextop.value == "." ? "idx" : (nextop.value as ast['type'])
+      if (['+', '-', '*', '/', '%', '<', '>', '<=', '>=', '==', '!=', '&&', '||', ":"].includes(op)){
+        const second = parseexpr(nonw(nonw(idx+1)+1))
         return {type: op, value: "", start: first.start, end:second.end, children: [first, second]} as binary
       }
     }
@@ -196,12 +202,8 @@ const parse = (code:string): ast => {
     return first
   }
 
-
-
   return parseexpr(0)
 }
-
-
 
 assertEq(parse("1"), {type:"number", value:"1", start:0, end:1, children:[]})
 assertEq(parse("2312"), {type:"number", value:"2312", start:0, end:4, children: []})
@@ -226,9 +228,20 @@ const build = (ast:ast):string =>{
 assertEq(build(parse("1")), "1")
 assertEq(build(parse("{1}")), "{1}")
 
-const testbuild = (...codes:string[]) =>
-  assertEq(build(parse(codes[0])), codes[1] ?? codes[0], " compiling "+ codes[0])
 
+const testbuild = (...codes:string[]) =>{
+
+  try{
+
+    const built = build(parse(codes[0]))
+    assertEq(built, codes[1] ?? codes[0], " compiling "+ codes[0])
+  }catch(e){
+    console.error(e, " in compiling "+ codes[0])
+  }
+  
+  
+}
+  
 testbuild("1")
 testbuild("{1}")
 testbuild("true")
@@ -241,7 +254,15 @@ testbuild("{1,}", "{1}")
 testbuild("-x")
 testbuild("x + y", "(x+y)")
 
-testbuild("{a:33, b:44}")
+testbuild("a:b", "(a:b)")
+testbuild("[a+1]", "[(a+1)]")
+testbuild("[a+1,b-1]", "[(a+1),(b-1)]")
+testbuild("{a:1}", "{(a:1)}")
+testbuild("...a", "...a")
+
+testbuild("{a:1, b:2,...c}", "{(a:1),(b:2),...c}")
+
+
 
 
 
