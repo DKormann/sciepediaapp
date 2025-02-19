@@ -97,14 +97,14 @@ const parse = (code:string): ast => {
       if ("[(".includes(nextop.value)){
         const grp = parsegroup(nextop, nexttok(nextop))
         const op = nextop.value == "(" ? "app" : "idx"
-        if (grp.children.length != 1) return parsecontinue({...grp, type:"typo", value: op + " expects one arg", children:[]} as ast)
+        if ( nextop.value== '[' && grp.children.length != 1) return parsecontinue({...grp, type:"typo", value: op + " expects one arg", children:[]} as ast)
         const newNode = {
           ...grp,
           type:op,
           value:"",
           start:first.start,
           end:grp.end,
-          children:[first, grp.children[0]]} as binary
+          children:[first, nextop.value == "[" ? grp.children[0] : grp]} as binary
         return parsecontinue(newNode)
       }
       
@@ -162,15 +162,15 @@ const build = (ast:ast):string =>{
     sfill(template.replace("{}", build(ast.children[i])), i+1)
   return ast.type == "number" || ast.type == "boolean" || ast.type == "null" || ast.type == "identifier" || ast.type == "string" ? ast.value:
   "({[".includes(ast.type[0]) ? `${ast.type[0]}${ast.children.map(build).join(",")}${ast.type[1]}`:
-  (ast.type == "app")? sfill("({}({}))"):
+  (ast.type == "app")? sfill("({}{})"):
   (ast.type == "idx")? sfill("({}[{}])"):
   (ast.type == 'neg')? `-${build(ast.children[0])}`:
   (ast.type == '=>')? sfill("({}=>({}))"):
   ast.type == ":" ? sfill("{}:{}"):
   ast.children.length == 2 ? sfill(`({}${ast.type}{})`, 0):
   ast.children.length == 1 ? `${ast.type}${build(ast.children[0])}`:
-  ast.type == "=;" ? sfill("(()=>{const {} = {}; return {}})()") :
-  (ternaryops.includes(ast.type)) ? sfill(`({}${ast.type[0]}{}${ast.type[1]}\n{})`, 0):
+  ast.type == "=;" ? sfill("(()=>{const {} = {};\nreturn {}})()") :
+  ast.type == "?:" ? sfill(`({}?{}:\n{})`, 0):
   "not implemented: "+ast.type
 }
 
@@ -206,24 +206,24 @@ const rearange = (nod:ast):ast => {
 
 const compile =(s:string) => build((rearange((parse(s)))))
 
-
 export const runfun = (code:string):any => {
-  const FN = Function("return "+
-    log
-    (compile(
-      // log
-      (code))))
-  return FN()
+  const compt = compile((code))
+
+  try{
+    const FN = Function("return "+compt) 
+    return FN()
+  }catch(e){
+    console.log(compt)
+    throw e
+  }
 }
 
 {
-
   assertEq(tokenize("1"), [{type:"number", value:"1", start:0, end:1}])
   assertEq(tokenize("1 +  1"), [{type:"number", value:"1", start:0, end:1}, {type:"whitespace", value:" ", start:1, end:2}, {type:"symbol", value:"+", start:2, end:3}, {type:"whitespace", value:"  ", start:3, end:5}, {type:"number", value:"1", start:5, end:6}])
   assertEq(tokenize('{"gello" + ]22', 0), [{type:"symbol", value:"{", start:0, end:1}, {type:"string", value:"\"gello\"", start:1, end:8}, {type:"whitespace", value:" ", start:8, end:9}, {type:"symbol", value:"+", start:9, end:10}, {type:"whitespace", value:" ", start:10, end:11}, {type:"symbol", value:"]", start:11, end:12}, {type:"number", value:"22", start:12, end:14}])
   assertEq(tokenize('true'), [{type:"boolean", value:"true", start:0, end:4}])
   assertEq(tokenize("a + // comment\nb"), [{type:"identifier", value:"a", start:0, end:1}, {type:"whitespace", value:" ", start:1, end:2}, {type:"symbol", value:"+", start:2, end:3}, {type:"whitespace", value:" ", start:3, end:4}, {type:"comment", value:"// comment", start:4, end:14}, {type:"whitespace", value:"\n", start:14, end:15}, {type:"identifier", value:"b", start:15, end:16}])
-
 
   const testbuild = (...codes:string[]) =>{
     try{
@@ -239,7 +239,6 @@ export const runfun = (code:string):any => {
 
   assertEq(build(parse("1")), "1")
   assertEq(build(parse("[1]")), "[1]")
-  
   
   testbuild("1")
   testbuild("[1]")
@@ -283,7 +282,7 @@ export const runfun = (code:string):any => {
   testCompile("a ? b : c", "(a?b:\nc)")
   
   testCompile("a>b?c:d", "((a>b)?c:\nd)")
-  testCompile("a=b;c", "(()=>{const a = b; return c})()")
+  testCompile("a=b;c", "(()=>{const a = b;\nreturn c})()")
   
   testCompile("14 ", "14")
   testCompile("1 + 2", "(1+2)")
@@ -321,10 +320,10 @@ export const runfun = (code:string):any => {
   testCompile("a.b(f(22))", '((a["b"])((f(22))))')  
   testCompile('"hello " + "world"', '("hello "+"world")')
 
+  testCompile("f(a, b)", '(f(a,b))')
 
-  const testRun = (code:string, expected:any)=>{
+  const testRun = (code:string, expected:any)=>
     assertEq(runfun(code), expected, " in running "+ code)
-  }
 
   testRun("\n1", 1)
   testRun("1 + 2", 3)
@@ -333,6 +332,8 @@ export const runfun = (code:string):any => {
 
   testRun("x=1;x", 1)
   testRun('x="hello";x+x', "hellohello")
+
+  testRun("[a,b] = [1,2]; a", 1)
 
   /*
   assertCompileErr('"abc', `parse error, expected: "`)

@@ -135,7 +135,7 @@ const runscript =(s:State, start:number)=> {
   log("running fs")
   try{
     const code = getPageText(start, s)
-    log({code})
+    log("code:",code)
     const res = stringify(runfun(code)).split("\n")
     const lpl = lastPageLine(start, s)
     return setLine([firstPageLine(lpl, s)+1,lpl+1],
