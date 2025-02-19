@@ -1,5 +1,5 @@
 
-// import "./style.css"
+import "./style.css"
 // import { view } from "./view"
 
 

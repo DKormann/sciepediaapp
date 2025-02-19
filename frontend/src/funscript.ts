@@ -109,16 +109,32 @@ const parse = (code:string): ast => {
         const grp = parsegroup(nextop, nexttok(nextop))
         const op = nextop.value == "(" ? "app" : "idx"
         if (grp.children.length != 1) return parsecontinue({...grp, type:"typo", value: op + " expects one arg", children:[]} as ast)
-        return parsecontinue({...grp, type:op, value:"", start:first.start, end:grp.end, children:[first, grp.children[0]]} as binary)
+        const newNode = {
+          ...grp,
+          type:op,
+          value:"",
+          start:first.start,
+          end:grp.end,
+          children:[first, grp.children[0]]} as binary
+        return parsecontinue(newNode)
       }
       
-      const op: ast["type"] = nextop.value == "(" ? "app" : nextop.value == "[" ? "idx" : nextop.value == "." ? "idx" :
-        (nextop.value == "?")? "?:": (nextop.value == "=")? "=;":
+      const op: ast["type"] =
+        (nextop.value == ".") ? "idx" :
+        (nextop.value == "?")? "?:":
+        (nextop.value == "=")? "=;":
         (nextop.value as ast['type'])
+
       if (binaryops.includes(op)){
         const second = parseexpr(nexttok(nextop))
-        return parsecontinue({type: op, value: "", start: first.start, end:second.end,
-          children: [first, nextop.value == "." ? iden2string(second as nullary):second]} as binary)
+        const newNode = {
+          type: op,
+          value: "",
+          start: first.start,
+          end: second.end,
+          children: [first, nextop.value == "." ? iden2string(second as nullary):second]
+        } as binary;
+        return parsecontinue(newNode)
       }
 
       if (ternaryops.includes(op)){
@@ -170,19 +186,20 @@ const build = (ast:ast):string =>{
 }
 
 
-const operator_weight = (op:ast['type']):number =>
-  (op =="?:")||(op === "=>") ? 6 :
-  (op === "<")||(op === ">")||(op === "<=")||(op === ">=")||(op === "==")||(op === "!=")?7:
-  (op === "&&")|| (op === "||")?9:
-  (op === "+")||(op === "-") ?10:
-  (op === "/")|| (op === "%")|| (op === "*")?11:
-  (unaryops.includes(op)) ? 12 :
-  (op === "app") || (op=="=;") ||(op=="...") || (op=="idx") ?13 :
 
-  (op === "[]") || (op === "{}") || (op === "()")?15:
-  (!binaryops.includes(op)) ? 16:
-  -1
-
+const operator_weight = (op: ast['type']): number =>
+  op === "app" ? 15 :              // Function application binds tightest
+  op === "idx" ? 14 :              // Property access next
+  unaryops.includes(op) ? 13 :     // Unary operators
+  op === "*" || op === "/" || op === "%" ? 12 :
+  op === "+" || op === "-" ? 11 :
+  op === "<" || op === ">" || op === "<=" || op === ">=" || op === "==" || op === "!=" ? 10 :
+  op === "&&" || op === "||" ? 9 :
+  op === "?:" || op === "=>" ? 8 :
+  op === "=;" ? 7 :
+  op === "..." ? 6 :
+  op === "[]" || op === "{}" || op === "()" ? 5 :
+  !binaryops.includes(op) ? 16 : -1;
 
 const rearange = (nod:ast):ast => {
 
@@ -212,7 +229,7 @@ const rearange = (nod:ast):ast => {
 
 const compile =(s:string) => build(
   (rearange(
-    log
+    // log
     (parse(s)))))
 
 {
@@ -303,9 +320,10 @@ const compile =(s:string) => build(
   testCompile("[-x, !true]", '[-x,!true]')
 
   testCompile("a.b", '(a["b"])')
-  testCompile("a.b.c", '((a["b"])["c"])')
-  testCompile("a.b(22)", '((a["b"])(22))')
+  testCompile("a.b.c", '((a["b"])["c"])') // fails giving a[b["c"]]
+  testCompile("a.b(22)", '((a["b"])(22))') // fails giving a[b(22)]
   testCompile("a(b).c", '((a(b))["c"])')
+ 
 
 
 
