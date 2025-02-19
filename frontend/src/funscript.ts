@@ -10,7 +10,6 @@ type code = {
 type token = code & {type:"number" | "string" | "boolean" | "null" | "identifier" | "symbol" | "typo" | "whitespace" | "comment"}
 
 const symbols = ["(", ")", "{", "}", "[", "]", "=>", ",", ":", "?", "=>", "!", "&&", "||", "+", "-", "*", "/", "%", "<", ">", "<=", ">=", "==", "!=", "=", ";", "...", ".", "//"]
-const symbol_letters = new Set(symbols.join('').split(''))
 
 const seek = (code:string, start:number, pred: (c:string, i:number)=>boolean):number =>{
   const off = code.slice(start).split('').findIndex(pred)
@@ -36,12 +35,6 @@ const tokenize = (code:string, i:number=0, tid = 0):token[] =>{
   return [{type:typ, value:code.slice(i, nxt), start:i, end:nxt}, ...tokenize(code, nxt, tid+1)]
 }
 
-assertEq(tokenize("1"), [{type:"number", value:"1", start:0, end:1}])
-assertEq(tokenize("1 +  1"), [{type:"number", value:"1", start:0, end:1}, {type:"whitespace", value:" ", start:1, end:2}, {type:"symbol", value:"+", start:2, end:3}, {type:"whitespace", value:"  ", start:3, end:5}, {type:"number", value:"1", start:5, end:6}])
-assertEq(tokenize('{"gello" + ]22', 0), [{type:"symbol", value:"{", start:0, end:1}, {type:"string", value:"\"gello\"", start:1, end:8}, {type:"whitespace", value:" ", start:8, end:9}, {type:"symbol", value:"+", start:9, end:10}, {type:"whitespace", value:" ", start:10, end:11}, {type:"symbol", value:"]", start:11, end:12}, {type:"number", value:"22", start:12, end:14}])
-assertEq(tokenize('true'), [{type:"boolean", value:"true", start:0, end:4}])
-assertEq(tokenize("a + // comment\nb"), [{type:"identifier", value:"a", start:0, end:1}, {type:"whitespace", value:" ", start:1, end:2}, {type:"symbol", value:"+", start:2, end:3}, {type:"whitespace", value:" ", start:3, end:4}, {type:"comment", value:"// comment", start:4, end:14}, {type:"whitespace", value:"\n", start:14, end:15}, {type:"identifier", value:"b", start:15, end:16}])
-
 type ast = nullary | unary | binary | ternary | nary
 
 type nullary = code & {type:"number" | "string" | "boolean" | "null" | "identifier" | "typo", children:[]}
@@ -63,8 +56,6 @@ const parse = (code:string): ast => {
     tokens[idx] == undefined? idx :tokens[idx].type == "whitespace" || tokens[idx].type == "comment" ? nonw(idx+1): idx
 
   const nexttok = (prev: code| ast):number =>nonw(tokens.findIndex(t=>t.start >= prev.end))
-
-
 
   const iden2string = (iden:nullary):nullary =>
     (iden.type == "identifier") ? {...iden, type:"string", value:`"${iden.value}"`}: iden
@@ -100,11 +91,9 @@ const parse = (code:string): ast => {
   }) as ast
 
   const parsecontinue = (first:ast):ast => {
-
     const nextop = tokens[nexttok(first)]
     if (nextop == undefined) return first
     if (nextop.type == "symbol"){
-
       if ("[(".includes(nextop.value)){
         const grp = parsegroup(nextop, nexttok(nextop))
         const op = nextop.value == "(" ? "app" : "idx"
@@ -126,7 +115,7 @@ const parse = (code:string): ast => {
         (nextop.value as ast['type'])
 
       if (binaryops.includes(op)){
-        const second = parseexpr(nexttok(nextop))
+        const second = parseindivisible(nexttok(nextop))
         const newNode = {
           type: op,
           value: "",
@@ -148,24 +137,24 @@ const parse = (code:string): ast => {
     return first
   }
 
-  const parseexpr = (idx:number):ast=> {
+  const parseatom = (idx:number):nullary|undefined =>  (["number", "string", "boolean", "null", "identifier"].includes(tokens[idx].type)) ? {...tokens[idx], children:[]} as nullary: undefined
+
+  const parseindivisible = (idx:number):nullary|unary|nary => {
     const tok = tokens[idx]
 
-    const tyo = {type:"typo", value:"unexpected "+ tok.value, start:tok.start, end:tok.end, children:[]} as ast
-    const first:ast =
-      (tok.type == "number" || tok.type == "string" || tok.type == "boolean" || tok.type == "null" || tok.type == "identifier") ? {...tok, children:[]} as nullary:
-      (tok.type == "symbol") ?
-        "({[".includes(tok.value) ? parsegroup(tok, nonw(idx+1)):
-        ["...", "-", "!"].includes(tok.value) ?
-        astnode(( tok.value == "-" ? "neg" : tok.value) as ast["type"], [parseexpr(nexttok(tok))]) as unary:
-        tyo:
-      tyo
-    return parsecontinue(first)
+    const typo = {...tok, type:"typo", value:"unexpected "+ tok.value, children:[]} as nullary
+    const op = (tok.value == '-')? "neg": tok.value
+    const res:nary|unary|nullary  = tok.type == "symbol" ?
+      "({[".includes(op) ? parsegroup(tok, nonw(idx+1)) as nary:
+      unaryops.includes(op) ? astnode(op as unary['type'], [parseindivisible(nexttok(tok))]) as unary:
+      typo
+    :parseatom(idx) ?? typo
+    return res
   }
 
-  return parseexpr(0)
+  const parseexpr = (idx:number):ast=> parsecontinue(parseindivisible(idx))
+  return parseexpr(nonw(0))
 }
-
 
 const build = (ast:ast):string =>{
   const sfill = (template:string, i=0):string =>
@@ -180,59 +169,62 @@ const build = (ast:ast):string =>{
   ast.type == ":" ? sfill("{}:{}"):
   ast.children.length == 2 ? sfill(`({}${ast.type}{})`, 0):
   ast.children.length == 1 ? `${ast.type}${build(ast.children[0])}`:
-
+  ast.type == "=;" ? sfill("(()=>{const {} = {}; return {}})()") :
   (ternaryops.includes(ast.type)) ? sfill(`({}${ast.type[0]}{}${ast.type[1]}\n{})`, 0):
   "not implemented: "+ast.type
 }
 
-
-
 const operator_weight = (op: ast['type']): number =>
-  op === "app" ? 15 :              // Function application binds tightest
-  op === "idx" ? 14 :              // Property access next
+  op === "app" || op === "idx" ? 15 :
   unaryops.includes(op) ? 13 :     // Unary operators
   op === "*" || op === "/" || op === "%" ? 12 :
   op === "+" || op === "-" ? 11 :
   op === "<" || op === ">" || op === "<=" || op === ">=" || op === "==" || op === "!=" ? 10 :
   op === "&&" || op === "||" ? 9 :
-  op === "?:" || op === "=>" ? 8 :
-  op === "=;" ? 7 :
-  op === "..." ? 6 :
-  op === "[]" || op === "{}" || op === "()" ? 5 :
-  !binaryops.includes(op) ? 16 : -1;
+  op === "?:" || op == "=;" ? 8 :
+  op === "=>" ? 7 :
+  -1;
 
 const rearange = (nod:ast):ast => {
 
-  const cmap = (nd:ast) => ({...nd, children:nd.children.map(rearange)} as ast)
-  const node = cmap(nod)
+  const node = {...nod, children:nod.children.map(rearange)} as ast
 
-  if (node.type == "[]") assert(!binaryops.includes(node.type), '[] should not be binary')
-  if (node.type == "[]") return node
-  if (unaryops.includes(node.type)){
-    const [fst] = (node as unary).children
-    if (operator_weight(node.type) > operator_weight(fst.type)){
-      return cmap({...fst, children:[{...node, children:[fst.children[0] as ast]} , ...fst.children.slice(1)]} as ast)
+  if (binaryops.includes(node.type)){
+    const [fst, snd] = node.children
+    if (binaryops.includes(fst.type) && operator_weight(fst.type) < operator_weight(node.type)){
+      return rearange({...fst, children:[(fst .children[0]), {...node, children:[fst.children[1], snd]}]} as ast)
     }
   }
-  if (binaryops.includes(node.type) && (node.type!="app")) {
-    
-    const [fst, snd] = (node as binary).children
-    if (
-      operator_weight(node.type) > operator_weight(snd.type)){
-      const sb = snd as binary
-      return cmap({...sb, children:[{...node, children:[fst, sb.children[0]]}  as binary,  ...sb.children.slice(1)]} as ast)
+  if (ternaryops.includes(node.type)){
+    const [fst, snd, trd] = node.children
+    if (binaryops.includes(fst.type) && operator_weight(fst.type) < operator_weight(node.type)){
+      return rearange({...fst, children:[(fst.children[0]), {...node, children:[fst.children[1], snd, trd]}]} as ast)
     }
   }
-
   return node
 }
 
-const compile =(s:string) => build(
-  (rearange(
-    // log
-    (parse(s)))))
+const compile =(s:string) => build((rearange((parse(s)))))
+
+
+export const runfun = (code:string):any => {
+  const FN = Function("return "+
+    log
+    (compile(
+      // log
+      (code))))
+  return FN()
+}
 
 {
+
+  assertEq(tokenize("1"), [{type:"number", value:"1", start:0, end:1}])
+  assertEq(tokenize("1 +  1"), [{type:"number", value:"1", start:0, end:1}, {type:"whitespace", value:" ", start:1, end:2}, {type:"symbol", value:"+", start:2, end:3}, {type:"whitespace", value:"  ", start:3, end:5}, {type:"number", value:"1", start:5, end:6}])
+  assertEq(tokenize('{"gello" + ]22', 0), [{type:"symbol", value:"{", start:0, end:1}, {type:"string", value:"\"gello\"", start:1, end:8}, {type:"whitespace", value:" ", start:8, end:9}, {type:"symbol", value:"+", start:9, end:10}, {type:"whitespace", value:" ", start:10, end:11}, {type:"symbol", value:"]", start:11, end:12}, {type:"number", value:"22", start:12, end:14}])
+  assertEq(tokenize('true'), [{type:"boolean", value:"true", start:0, end:4}])
+  assertEq(tokenize("a + // comment\nb"), [{type:"identifier", value:"a", start:0, end:1}, {type:"whitespace", value:" ", start:1, end:2}, {type:"symbol", value:"+", start:2, end:3}, {type:"whitespace", value:" ", start:3, end:4}, {type:"comment", value:"// comment", start:4, end:14}, {type:"whitespace", value:"\n", start:14, end:15}, {type:"identifier", value:"b", start:15, end:16}])
+
+
   const testbuild = (...codes:string[]) =>{
     try{
       const built = build(parse(codes[0]))
@@ -259,8 +251,8 @@ const compile =(s:string) => build(
   testbuild("{}")
   testbuild("{a,}", '{"a":a}')
   testbuild("-x")
-  testbuild("x + y", "(x+y)")
 
+  testbuild("x + y", "(x+y)")
   testbuild("[a+1]", "[(a+1)]")
   testbuild("[a+1,b-1]", "[(a+1),(b-1)]")
   testbuild("{a:1}", '{"a":1}')
@@ -279,60 +271,71 @@ const compile =(s:string) => build(
 
   testCompile("1", "1")
   testCompile("a + 3", "(a+3)")
-
   testCompile("!a+b", "(!a+b)")
-
+  testCompile("a + b + c", "((a+b)+c)")
+  
   testCompile("a + b * c", "(a+(b*c))")
+  testCompile("[a + b * c]", "[(a+(b*c))]")
+  testCompile("a + b * c . d", '(a+(b*(c["d"])))')
   testCompile("a * b + c", "((a*b)+c)")
+
   testCompile("!a * b +c", "((!a*b)+c)")
   testCompile("a ? b : c", "(a?b:\nc)")
-
+  
   testCompile("a>b?c:d", "((a>b)?c:\nd)")
-  testCompile("a=b;c", "(a=b;\nc)")
-
+  testCompile("a=b;c", "(()=>{const a = b; return c})()")
+  
   testCompile("14 ", "14")
   testCompile("1 + 2", "(1+2)")
   testCompile("1 * 2 + 3", "((1*2)+3)")
   testCompile("{a:1, b:2}", '{"a":1,"b":2}')
   testCompile("{a, ...b}", '{"a":a,...b}')
-
+  
   testCompile("x.y", '(x["y"])')
   testCompile("x[y]", '(x[y])')
   testCompile("x=>y", '(x=>(y))')
   testCompile("x=>x.y", '(x=>((x["y"])))')
-
+  
   testCompile("1 > 2 ? 3 : 4", '((1>2)?3:\n4)')
   testCompile("1>2?3:4", '((1>2)?3:\n4)')
-
-
+  
   testCompile('fn(22)', '(fn(22))')
   testCompile('fn(22) + 3', '((fn(22))+3)')
   testCompile('"a"+"b"', '("a"+"b")')
-  log(compile('"a" + "b"'))
-  testCompile('a.b', '(a["b"])')
 
+  testCompile('a.b', '(a["b"])')
+  
   testCompile('n=>n<2?n:2', '(n=>(((n<2)?n:\n2)))')
   testCompile('fn(x-2)', '(fn((x-2)))')
   testCompile('a+b(c)', '(a+(b(c)))')
-
+  
   testCompile('[fn(x),2]', '[(fn(x)),2]')
   testCompile('[x[3],e.r,2,]', '[(x[3]),(e["r"]),2]')
   testCompile("[-x, !true]", '[-x,!true]')
-
+  
   testCompile("a.b", '(a["b"])')
   testCompile("a.b.c", '((a["b"])["c"])') // fails giving a[b["c"]]
   testCompile("a.b(22)", '((a["b"])(22))') // fails giving a[b(22)]
   testCompile("a(b).c", '((a(b))["c"])')
- 
+
+  testCompile("a.b(f(22))", '((a["b"])((f(22))))')  
+  testCompile('"hello " + "world"', '("hello "+"world")')
 
 
+  const testRun = (code:string, expected:any)=>{
+    assertEq(runfun(code), expected, " in running "+ code)
+  }
 
-  // testCompile("a.b(f(22))", '((a["b"])((f(22))))')
+  testRun("\n1", 1)
+  testRun("1 + 2", 3)
 
-  // testCompile('"hello " + "world"', '("hello "+"world")')
-  // assertCompileErr('"abc', `parse error, expected: "`)
+  testRun('"hello" + "world"', "helloworld")
+
+  testRun("x=1;x", 1)
+  testRun('x="hello";x+x', "hellohello")
+
+  /*
+  assertCompileErr('"abc', `parse error, expected: "`)
+
+  */
 }
-
-
-
-

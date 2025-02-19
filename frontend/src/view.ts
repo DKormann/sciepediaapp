@@ -6,7 +6,9 @@ import "./funscript"
 
 import { assertEq, comp, log, last, LastT, stringify, setAttr, uuid} from './helpers'
 import { Store , store, teststore} from './_store'
-import { nice_error, runfun } from './funscript'
+import { 
+  // nice_error, 
+  runfun } from './funscript'
 
 const max = Math.max
 const abs = Math.abs
@@ -45,7 +47,7 @@ const islink = (s:string) => s.startsWith('#') && s.length > 1
 
 const buildPage = (r:Root, path:Path, indent:number):Pelement[] => {
   const node = getData(r, path)
-  log(node)
+  // log(node)
   const tit = node.path.join('.')
   return [
     {content:tit,path,indent,is_title:true, children:[], cursor:-1},
@@ -133,8 +135,8 @@ const runscript =(s:State, start:number)=> {
   log("running fs")
   try{
     const code = getPageText(start, s)
-    const ret = runfun(code)
-    const res = (ret.status == "err" ? nice_error(code, ret) : stringify(ret.val)).split("\n")
+    log({code})
+    const res = stringify(runfun(code)).split("\n")
     const lpl = lastPageLine(start, s)
     return setLine([firstPageLine(lpl, s)+1,lpl+1],
     ...res.map(
@@ -209,7 +211,7 @@ const cursorMove=(dl:number, dc:number):Update => s=>{
 }
 
 const pushhist:Update = s=> (
-  log('push'),(last (s.hist) == undefined || uuid(s).id != 
+  (last (s.hist) == undefined || uuid(s).id != 
 uuid(last(s.hist)).id
 ) ?setStateVar('hist', [...s.hist.slice(-10), s])(s):(log('no change'), s))
 
@@ -364,7 +366,7 @@ export const view = (putHTML:(el:HTMLElement)=>void) => {
     child('script.fs', "\nfib = (n) =>\n  n<2 ? n :\n  fib(n-1) + fib(n-2);\n\nfastfib = (n) =>\n  _fib = n =>\n    n == 0 ? [1,0]:\n    [a,b] = _fib(n-1);\n    [b,a+b];\n  _fib(n)[0];\n\n\n[fib(7), fastfib(70)]\n"),
     child('script.fs.>>>',"RESULT")
 )
-  log(getData(r, ['script.fs']))
+  // log(getData(r, ['script.fs']))
 
   cc(
     show
