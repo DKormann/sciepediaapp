@@ -7,8 +7,14 @@ import "./funscript"
 import { assertEq, comp, log, last, LastT, stringify, setAttr, uuid} from './helpers'
 import { Store , store, teststore} from './_store'
 import { 
-  // nice_error, 
-  runfun } from './funscript'
+  getAst,
+  execAst,
+  ast,
+  token,
+  tokenize,
+  highlighted,
+
+   } from './funscript'
 
 const max = Math.max
 const abs = Math.abs
@@ -38,7 +44,6 @@ type Pelement = {
   cursor:number ,
 }
 
-
 type Rendered = Pelement & {
   el:HTMLElement
 }
@@ -47,7 +52,6 @@ const islink = (s:string) => s.startsWith('#') && s.length > 1
 
 const buildPage = (r:Root, path:Path, indent:number):Pelement[] => {
   const node = getData(r, path)
-  // log(node)
   const tit = node.path.join('.')
   return [
     {content:tit,path,indent,is_title:true, children:[], cursor:-1},
@@ -58,17 +62,20 @@ const buildPage = (r:Root, path:Path, indent:number):Pelement[] => {
   ]
 }
 
-const render = (par: Pelement, style?:string):Rendered=>(
+const render = (par: Pelement, color?:{color:string}[]):Rendered=>(
+  
   {...par,
     el: htmlElement('p', '', 'line', {children:[
         ...Array.from({length:par.indent}, _=>htmlElement('div', '', 'pad')),
         ...par.is_title? [htmlElement('span', par.content, 'title')]
         :insert(
+          color?par.content.split('').map((c,i)=>htmlElement('span', c, 'char', {color: color[i].color})):
           par.content.split(' ').map(w=>(' '+w).split('').map(c=>htmlElement('span', c, islink(w)?'link':'char'))).flat().slice(1),
+
           par.cursor, cursor()
         )
       ],
-      ...style?{style}:{}
+      ...color?{color}:{}
     }
   )
 })
@@ -120,38 +127,48 @@ const setLine = (line:number|[number, number], ...lines: Pelement[]):Update=>s=>
     s=>setStateVar("r", setData(s.r,
       child(lines[0].path.join("."),
       seekPage(start,s).slice(1).map(p=>p.content).join("\n"))))(s),
-    s=>{
-      if (last(lines[0].path) == 'fs'){
-        return runscript(s,start)
-      }
-      return s
-    },
-
     setStateVar('cursor', focusline == -1? s.cursor: start+focusline)
   )(s)
 }
 
+
 const runscript =(s:State, start:number)=> {
-  log("running fs")
+
   try{
+    const pg = seekPage(start, s)
     const code = getPageText(start, s)
-    log("code:",code)
-    const res = stringify(runfun(code)).split("\n")
-    const lpl = lastPageLine(start, s)
-    return setLine([firstPageLine(lpl, s)+1,lpl+1],
-    ...res.map(
-      c=>render({
-        ...s.p[lpl],
-        content:c,
-        cursor:-1,
-        is_title:undefined,
-      })
-    ))(s)
+    const codelines = code.split('\n')
+    const toks = tokenize(code)
+    const colormap = highlighted(toks)
+
+    const res = stringify(execAst(getAst(toks))).split("\n")
+    const fcl = firstPageLine(start, s)
+    const lol = lastPageLine(start, s)
+    const lcl = firstPageLine(lol, s)
+    
+    log("runsciprt")
+    
+    return cc(
+      setStateVar('p',[
+        ...s.p.slice(0,fcl+1),
+        // ...s.p.slice(fcl+1,lcl).map(p=>({...p, el:render(p,"blue").el})),
+        ...colormap.map((l,i)=>render({...pg[i+1], content:codelines[i], is_title:undefined}, l)),
+        ...s.p.slice(lcl)
+        ]),
+      s=>setLine([firstPageLine(lol, s)+1,lol+1],
+        ...res.map(
+          c=>render({
+            ...s.p[lol],
+            content:c,
+            cursor:-1,
+            is_title:undefined,
+          })
+        ))(s)
+    )(s)
   }catch(e){
-    console.error(e)
+    console.warn(e)
   }
 }
-
 
 const cc = <T> (...fs:((a:T)=>T|void)[]) => (a:T) => fs.reduce((r,f)=>f(r)??r,a)
 
@@ -260,113 +277,120 @@ const flatprint = (p:Rendered[])=> p.map((p,i)=>`${i}:`+"->".repeat(p.indent)+p.
 
 export const view = (putHTML:(el:HTMLElement)=>void) => {
 
-  const show = (s:State)=>{
-    const onclick = (e:MouseEvent)=>{
-      const p = findLine(s.p, e.y+window.scrollY)
-      if (p === -1) return
-      const c = findChar(s.p[p], e.x+window.scrollX)
-      const [a,b] = seekWord(s.p[p],c)
-      if (islink(s.p[p].content.slice(a,b))){
-        show(toggleLink(p,a,b)(s))
-      }else{
-        show(setCursor(p,c)(s))
+  const show = (s:State)=>cc<State>(
+
+    s=>{
+      const l = getLines(s.cursor)(s)[0]
+      if (last(l.path) == "fs"){
+        return runscript(s, s.cursor)
       }
-    }
+    },
+    s=>{
+      const onclick = (e:MouseEvent)=>{
+        const p = findLine(s.p, e.y+window.scrollY)
+        if (p === -1) return
+        const c = findChar(s.p[p], e.x+window.scrollX)
+        const [a,b] = seekWord(s.p[p],c)
+        if (islink(s.p[p].content.slice(a,b))){
+          show(toggleLink(p,a,b)(s))
+        }else{
+          show(setCursor(p,c)(s))
+        }
+      }
 
-    putHTML(htmlElement('div', '', 'root',{
-      children: s.p.map(p=>p.el),
-      eventListeners:{
-        click: onclick,
-        keydown: (e:KeyboardEvent)=>{
-          
-          if (['Meta','Control', 'Alt', 'Shift'].includes(e.key)) return
+      putHTML(htmlElement('div', '', 'root',{
+        children: s.p.map(p=>p.el),
+        eventListeners:{
+          click: onclick,
+          keydown: (e:KeyboardEvent)=>{
+            
+            if (['Meta','Control', 'Alt', 'Shift'].includes(e.key)) return
 
-          if (e.key.startsWith("Arrow")){
-            e.preventDefault()
+            if (e.key.startsWith("Arrow")){
+              e.preventDefault()
 
-            const par = getLines(s.cursor)(s)[0];
-            const st = e.altKey?5
-            :e.metaKey?(
-              e.key == 'ArrowUp'?s.p.slice(0,s.cursor).reverse().findIndex(p=>p.is_title)
-              :e.key == 'ArrowDown'?(s.p.slice(s.cursor).concat({...par,indent:par.indent-1})).findIndex(p=>p.indent<par.indent)-1
-              :e.key == 'ArrowLeft'?par.cursor
-              :par.content.length-par.cursor
-            )
-            :1
+              const par = getLines(s.cursor)(s)[0];
+              const st = e.altKey?5
+              :e.metaKey?(
+                e.key == 'ArrowUp'?s.p.slice(0,s.cursor).reverse().findIndex(p=>p.is_title)
+                :e.key == 'ArrowDown'?(s.p.slice(s.cursor).concat({...par,indent:par.indent-1})).findIndex(p=>p.indent<par.indent)-1
+                :e.key == 'ArrowLeft'?par.cursor
+                :par.content.length-par.cursor
+              )
+              :1
 
-            return show(cursorMove(
-              e.key == 'ArrowUp'?-st:e.key == 'ArrowDown'?st:0,
-              e.key == 'ArrowLeft'?-st:e.key == 'ArrowRight'?st:0)(s))
-          }
-          if (e.key == 'Enter') {
-            cc(
-              pushhist,
-              updateLines(s.cursor, ([p])=>([
-                {...p, content:p.content.slice(0,p.cursor), cursor:-1},
-                {...p, content:p.content.slice(p.cursor), cursor:0},
-              ])),
-              show
-            )(s)
-            return
-          }
-          if (e.key == 'Backspace') {
-            const speed = e.altKey?5:e.metaKey?getLines(s.cursor)(s)[0].cursor:1
-            return show(updateLines([s.cursor-1, s.cursor+1], ps=>{
-              if (ps.length==0) return []
-
-              if (ps.length==1) {
-                const p = ps[0]
-                return [{...p, content:p.content.slice(0,p.cursor-speed)+p.content.slice(p.cursor), cursor:Math.max(0, p.cursor!-speed)}]
-              }else{
-                const [p1,p2] = ps
-                return (p2.cursor>0 || p1.indent!=p2.indent)?
-                [p1, {...p2, content:p2.content.slice(0,Math.max(0,p2.cursor-speed))+p2.content.slice(p2.cursor), cursor:Math.max(0,p2.cursor-speed)}]
-                :[{...p1, content:p1.content  +p2.content, cursor:p1.content.length+1-speed}]
-              }
-            })(pushhist(s)))
-          }
-          if (e.key == 'Delete') return
-          if (e.key == 'Tab') {
-            if (e.metaKey || e.shiftKey) return
-            e.preventDefault()
-            return show(updateLines(s.cursor, ([p])=>([{...p, content:p.content.slice(0,p.cursor)+'  '+p.content.slice(p.cursor) , cursor:p.cursor+2}]))(s))
-          }
-
-          if (e.key == 'Escape') return
-          if (e.key.length==1){
-          
-            if (e.metaKey) {
-              if (e.key == 'z'){
-                log('undo')
-                if (s.hist.length) show({
-                  ...last(s.hist),
-                  hist: s.hist.slice(0,-1)
-                })
-              }
+              return show(cursorMove(
+                e.key == 'ArrowUp'?-st:e.key == 'ArrowDown'?st:0,
+                e.key == 'ArrowLeft'?-st:e.key == 'ArrowRight'?st:0)(s))
+            }
+            if (e.key == 'Enter') {
+              cc(
+                pushhist,
+                updateLines(s.cursor, ([p])=>([
+                  {...p, content:p.content.slice(0,p.cursor), cursor:-1},
+                  {...p, content:p.content.slice(p.cursor), cursor:0},
+                ])),
+                show
+              )(s)
               return
             }
-            if (s.cursor == -1) return
-            cc<State>(
-              pushhist,
-              updateLines(s.cursor, ([p])=>([{...p, content:p.content.slice(0,p.cursor)+e.key+p.content.slice(p.cursor) , cursor:p.cursor+1}])),
-              show
-            )(s)
-            return
-          }
+            if (e.key == 'Backspace') {
+              const speed = e.altKey?5:e.metaKey?getLines(s.cursor)(s)[0].cursor:1
+              return show(updateLines([s.cursor-1, s.cursor+1], ps=>{
+                if (ps.length==0) return []
+
+                if (ps.length==1) {
+                  const p = ps[0]
+                  return [{...p, content:p.content.slice(0,p.cursor-speed)+p.content.slice(p.cursor), cursor:Math.max(0, p.cursor!-speed)}]
+                }else{
+                  const [p1,p2] = ps
+                  return (p2.cursor>0 || p1.indent!=p2.indent)?
+                  [p1, {...p2, content:p2.content.slice(0,Math.max(0,p2.cursor-speed))+p2.content.slice(p2.cursor), cursor:Math.max(0,p2.cursor-speed)}]
+                  :[{...p1, content:p1.content  +p2.content, cursor:p1.content.length+1-speed}]
+                }
+              })(pushhist(s)))
+            }
+            if (e.key == 'Delete') return
+            if (e.key == 'Tab') {
+              if (e.metaKey || e.shiftKey) return
+              e.preventDefault()
+              return show(updateLines(s.cursor, ([p])=>([{...p, content:p.content.slice(0,p.cursor)+'  '+p.content.slice(p.cursor) , cursor:p.cursor+2}]))(s))
+            }
+
+            if (e.key == 'Escape') return
+            if (e.key.length==1){
+            
+              if (e.metaKey) {
+                if (e.key == 'z'){
+                  log('undo')
+                  if (s.hist.length) show({
+                    ...last(s.hist),
+                    hist: s.hist.slice(0,-1)
+                  })
+                }
+                return
+              }
+              if (s.cursor == -1) return
+              cc<State>(
+                pushhist,
+                updateLines(s.cursor, ([p])=>([{...p, content:p.content.slice(0,p.cursor)+e.key+p.content.slice(p.cursor) , cursor:p.cursor+1}])),
+                show
+              )(s)
+              return
+            }
+          },
         },
-      },
-    }));
-  }
+      }));
+    }
+  )(s)
 
   const r = 
   store.get('root') ??
   root(
     child('hello', 'hello #world'),
-    
     child('script.fs', "\nfib = (n) =>\n  n<2 ? n :\n  fib(n-1) + fib(n-2);\n\nfastfib = (n) =>\n  _fib = n =>\n    n == 0 ? [1,0]:\n    [a,b] = _fib(n-1);\n    [b,a+b];\n  _fib(n)[0];\n\n\n[fib(7), fastfib(70)]\n"),
     child('script.fs.>>>',"RESULT")
 )
-  // log(getData(r, ['script.fs']))
 
   cc(
     show

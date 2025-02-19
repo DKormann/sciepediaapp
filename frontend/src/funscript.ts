@@ -7,7 +7,7 @@ type code = {
   end: number,
 }
 
-type token = code & {type:"number" | "string" | "boolean" | "null" | "identifier" | "symbol" | "typo" | "whitespace" | "comment"}
+export type token = code & {type:"number" | "string" | "boolean" | "null" | "identifier" | "symbol" | "typo" | "whitespace" | "comment"}
 
 const symbols = ["(", ")", "{", "}", "[", "]", "=>", ",", ":", "?", "=>", "!", "&&", "||", "+", "-", "*", "/", "%", "<", ">", "<=", ">=", "==", "!=", "=", ";", "...", ".", "//"]
 
@@ -16,7 +16,7 @@ const seek = (code:string, start:number, pred: (c:string, i:number)=>boolean):nu
   return off == -1 ? code.length : start + off
 }
 
-const tokenize = (code:string, i:number=0, tid = 0):token[] =>{
+export const tokenize = (code:string, i:number=0, tid = 0):token[] =>{
   if (code.length <= i) return []
   const comp = (name:string) => code.slice(i, i+name.length) == name
   const [typ, nxt] :[token["type"], number]= 
@@ -35,7 +35,7 @@ const tokenize = (code:string, i:number=0, tid = 0):token[] =>{
   return [{type:typ, value:code.slice(i, nxt), start:i, end:nxt}, ...tokenize(code, nxt, tid+1)]
 }
 
-type ast = nullary | unary | binary | ternary | nary
+export type ast = nullary | unary | binary | ternary | nary
 
 type nullary = code & {type:"number" | "string" | "boolean" | "null" | "identifier" | "typo", children:[]}
 type unary = code & {type:"!" | "neg" | "..."} & {children: [ast]}
@@ -49,9 +49,9 @@ const binaryops = ["+", "-", "*", "/", "%", "<", ">", "<=", ">=", "==", "!=", "&
 const unaryops = ["!", "neg", "..."]
 
 
-const parse = (code:string): ast => {
+const parse = (tokens:token[]): ast => {
 
-  const tokens = tokenize(code)
+  // const tokens = tokenize(code)
   const nonw = (idx:number): number =>
     tokens[idx] == undefined? idx :tokens[idx].type == "whitespace" || tokens[idx].type == "comment" ? nonw(idx+1): idx
 
@@ -181,7 +181,7 @@ const operator_weight = (op: ast['type']): number =>
   op === "+" || op === "-" ? 11 :
   op === "<" || op === ">" || op === "<=" || op === ">=" || op === "==" || op === "!=" ? 10 :
   op === "&&" || op === "||" ? 9 :
-  op === "?:" || op == "=;" ? 8 :
+  op === "?:" || op === "=;" ? 8 :
   op === "=>" ? 7 :
   -1;
 
@@ -204,18 +204,41 @@ const rearange = (nod:ast):ast => {
   return node
 }
 
-const compile =(s:string) => build((rearange((parse(s)))))
+const compile =(s:string) => build((rearange((parse(tokenize(s))))))
 
-export const runfun = (code:string):any => {
-  const compt = compile((code))
 
+export const getAst = (tokens:token[]):ast => rearange(parse(tokens))
+
+export const execAst = (parsed:ast):any => {
+
+  const compt = build(parsed)
   try{
     const FN = Function("return "+compt) 
     return FN()
   }catch(e){
-    console.log(compt)
-    throw e
+    return (e as Error).message
   }
+}
+
+const runfun = (code:string):any =>execAst(getAst(tokenize(code)))
+
+type colored_line = {code:string, color:string}[]
+
+export const highlighted = (toks: token[]):{color:string}[][] =>{
+  const chs:colored_line[][] = toks.map(tok=> tok.value.split("\n").map(s=>[{code:s, color:
+    tok.type == "typo" ? 'red' :
+    tok.type == "identifier" ? "#4444ff" :
+    tok.type == "number" || tok.type=="string" || tok.type == "boolean" || tok.type== "comment" ? "green" :
+    tok.type == "symbol" ? "orange" :
+    "var(--color)"}]))
+  const lines =  chs.slice(1).reduce((p, c)=>[...p.slice(0,-1), [...last(p), ...c[0]], ...c.slice(1)], chs[0])
+  return lines.map(l=>l.map(c=>c.code.split('').map(ch=>({color:c.color}))).flat())
+}
+
+
+{
+  const toks = tokenize("\nx=2;\nx")
+  log(highlighted(toks))
 }
 
 {
@@ -227,18 +250,18 @@ export const runfun = (code:string):any => {
 
   const testbuild = (...codes:string[]) =>{
     try{
-      const built = build(parse(codes[0]))
+      const built = build(parse(tokenize(codes[0])))
       assertEq(built, codes[1] ?? codes[0], " compiling "+ codes[0])
     }catch(e){
       console.error(e, " in compiling "+ codes[0])
     }
   }  
-  assertEq(parse("1"), {type:"number", value:"1", start:0, end:1, children:[]})
-  assertEq(parse("2312"), {type:"number", value:"2312", start:0, end:4, children: []})
-  assertEq(parse("true"), {type:"boolean", value:"true", start:0, end:4, children: []})
+  assertEq(parse(tokenize("1")), {type:"number", value:"1", start:0, end:1, children:[]})
+  assertEq(parse(tokenize("2312")), {type:"number", value:"2312", start:0, end:4, children: []})
+  assertEq(parse(tokenize("true")), {type:"boolean", value:"true", start:0, end:4, children: []})
 
-  assertEq(build(parse("1")), "1")
-  assertEq(build(parse("[1]")), "[1]")
+  assertEq(build(parse(tokenize("1"))), "1")
+  assertEq(build(parse(tokenize("[1]"))), "[1]")
   
   testbuild("1")
   testbuild("[1]")
@@ -337,6 +360,6 @@ export const runfun = (code:string):any => {
 
   /*
   assertCompileErr('"abc', `parse error, expected: "`)
-
   */
 }
+

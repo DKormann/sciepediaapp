@@ -2,7 +2,6 @@
 export type Path = string[]
 import { log } from "./helpers"
 
-
 export type Root = {
   path:[],
   children:Child[]
@@ -79,7 +78,6 @@ const assert = (condition:boolean, message:string) => {
 import { assertEq } from "./helpers"
 
 {
-  console.log("testing");
   chain(
     root(child('a', 'a',  child('a.b', 'b', child('a.b.c','c')))),
 

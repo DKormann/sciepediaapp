@@ -74,13 +74,6 @@ export const uuid=<T >(x:T):T & {id:bigint}=>{
   return _id(x)[0]
 }
 
-// log(hash('a'))
-// log(hash('ab'))
-// log(hash('abcdef'))
-
-// log(hash(`abcdeflog(hash('abcdef'))`))
-// log(hash(`abcdeflog(hash('abcdef')`))
-// log(hash(`abcdeflog(hash('abcdef'`))
 
 type BTree<T> = {
   value: T & {id:bigint},
