@@ -134,39 +134,42 @@ const setLine = (line:number|[number, number], ...lines: Pelement[]):Update=>s=>
 
 const runscript =(s:State, start:number)=> {
 
-  try{
-    const pg = seekPage(start, s)
-    const code = getPageText(start, s)
-    const codelines = code.split('\n')
-    const toks = tokenize(code)
-    const colormap = highlighted(toks)
+  const pg = seekPage(start, s)
+  const code = getPageText(start, s)
+  const codelines = code.split('\n')
+  const toks = tokenize(code)
+  const colormap = highlighted(toks)
 
+  const fcl = firstPageLine(start, s)
+  const lol = lastPageLine(start, s)
+  const lcl = firstPageLine(lol, s)
+  
+  const s1 = 
+  setStateVar('p',[
+      ...s.p.slice(0,fcl+1),
+      ...colormap.map((l,i)=>render({...pg[i+1], content:codelines[i], is_title:undefined}, l)),
+      ...s.p.slice(lcl)
+    ])(s);
+  
+  const displayres = (lns:string[])=>
+    setLine([firstPageLine(lol, s1)+1,lol+1],
+      ...lns.map(
+        c=>render({
+          ...s1.p[lol],
+          content:c,
+          cursor:-1,
+          is_title:undefined,
+        })
+      ))
+
+
+  try{
     const res = stringify(execAst(getAst(toks))).split("\n")
-    const fcl = firstPageLine(start, s)
-    const lol = lastPageLine(start, s)
-    const lcl = firstPageLine(lol, s)
-    
-    log("runsciprt")
-    
-    return cc(
-      setStateVar('p',[
-        ...s.p.slice(0,fcl+1),
-        // ...s.p.slice(fcl+1,lcl).map(p=>({...p, el:render(p,"blue").el})),
-        ...colormap.map((l,i)=>render({...pg[i+1], content:codelines[i], is_title:undefined}, l)),
-        ...s.p.slice(lcl)
-        ]),
-      s=>setLine([firstPageLine(lol, s)+1,lol+1],
-        ...res.map(
-          c=>render({
-            ...s.p[lol],
-            content:c,
-            cursor:-1,
-            is_title:undefined,
-          })
-        ))(s)
-    )(s)
+    return displayres(res)(s1)
+
   }catch(e){
     console.warn(e)
+    return displayres((e as Error).message.split("\n"))(s1)
   }
 }
 

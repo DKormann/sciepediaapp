@@ -39,13 +39,13 @@ export type ast = nullary | unary | binary | ternary | nary
 
 type nullary = code & {type:"number" | "string" | "boolean" | "null" | "identifier" | "typo", children:[]}
 type unary = code & {type:"!" | "neg" | "..."} & {children: [ast]}
-type binary = code & {type:"+" | "-" | "*" | "/" | "%" | "<" | ">" | "<=" | ">=" | "==" | "!=" | "&&" | "||" | "app" | "=>" | "idx" | "[]" | ":"} & {children: [ast, ast]}
+type binary = code & {type:"+" | "-" | "*" | "/" | "%" | "<" | ">" | "<=" | ">=" | "==" | "!=" | "&&" | "||" | "app" | "=>" | "index" | "[]" | ":"} & {children: [ast, ast]}
 type ternary = code & {type:"?:" | "=;"} & {children: [ast, ast, ast]}
 type nary = code & {type:"{}" | "[]" | "()"} & {children: ast[]}
 
 const ternaryops = ["?:", "=;"]
 const symbolpairs = [["(", ")"], ["{", "}"], ["[", "]"], ["?", ":"], ["=", ";"]]
-const binaryops = ["+", "-", "*", "/", "%", "<", ">", "<=", ">=", "==", "!=", "&&", "||", "app", "=>", "idx"]
+const binaryops = ["+", "-", "*", "/", "%", "<", ">", "<=", ">=", "==", "!=", "&&", "||", "app", "=>", "index"]
 const unaryops = ["!", "neg", "..."]
 
 
@@ -68,18 +68,18 @@ const parse = (tokens:token[]): ast => {
     return {type:":", value:"", start:k.start, end:v.end, children:[ k.type=="identifier"? iden2string(k):k, v]}
   }
 
-  const parsegroup = (opener:token , idx: number):nary => {
+  const parsegroup = (opener:token , idx: number):nary|nullary => {
     const closer = symbolpairs.find(s=>s[0] == opener.value)?.[1]
     if (closer == undefined) throw new Error("parsegroup error "+ opener.value+ " not an opener")
       const type = opener.value + closer as (nary)["type"]
     const tok = tokens[idx]
+    if (tok == undefined) return {type: "typo", value: "expected "+closer, start: opener.start, end: opener.end, children:[]}
     if (tok.value == closer) return {type, value:"", children:[], start: opener.start, end: tok.end}
     if (tok.value == ",") return parsegroup(opener, nexttok(tok))
       
     const child = type == "{}" ? parseKV (idx) : parseexpr(idx)
-
     const rest = parsegroup(opener, nexttok(child))
-    return {...rest, children:[child, ...rest.children]}
+    return rest.type == "typo" ? rest : {...rest, children:[child, ...rest.children]} as nary
   }
 
   const astnode = (type:(ast)["type"], children:ast[]) => ({
@@ -96,7 +96,7 @@ const parse = (tokens:token[]): ast => {
     if (nextop.type == "symbol"){
       if ("[(".includes(nextop.value)){
         const grp = parsegroup(nextop, nexttok(nextop))
-        const op = nextop.value == "(" ? "app" : "idx"
+        const op = nextop.value == "(" ? "app" : "index"
         if ( nextop.value== '[' && grp.children.length != 1) return parsecontinue({...grp, type:"typo", value: op + " expects one arg", children:[]} as ast)
         const newNode = {
           ...grp,
@@ -109,7 +109,7 @@ const parse = (tokens:token[]): ast => {
       }
       
       const op: ast["type"] =
-        (nextop.value == ".") ? "idx" :
+        (nextop.value == ".") ? "index" :
         (nextop.value == "?")? "?:":
         (nextop.value == "=")? "=;":
         (nextop.value as ast['type'])
@@ -142,7 +142,8 @@ const parse = (tokens:token[]): ast => {
   const parseindivisible = (idx:number):nullary|unary|nary => {
     const tok = tokens[idx]
 
-    const typo = {...tok, type:"typo", value:"unexpected "+ tok.value, children:[]} as nullary
+    const typo = {...tok, type:"typo", value:"unexpected "+ (tok?.value) ??  "end of input", children:[]} as nullary
+    if (tok == undefined) return typo
     const op = (tok.value == '-')? "neg": tok.value
     const res:nary|unary|nullary  = tok.type == "symbol" ?
       "({[".includes(op) ? parsegroup(tok, nonw(idx+1)) as nary:
@@ -163,7 +164,7 @@ const build = (ast:ast):string =>{
   return ast.type == "number" || ast.type == "boolean" || ast.type == "null" || ast.type == "identifier" || ast.type == "string" ? ast.value:
   "({[".includes(ast.type[0]) ? `${ast.type[0]}${ast.children.map(build).join(",")}${ast.type[1]}`:
   (ast.type == "app")? sfill("({}{})"):
-  (ast.type == "idx")? sfill("({}[{}])"):
+  (ast.type == "index")? sfill("({}[{}])"):
   (ast.type == 'neg')? `-${build(ast.children[0])}`:
   (ast.type == '=>')? sfill("({}=>({}))"):
   ast.type == ":" ? sfill("{}:{}"):
@@ -171,11 +172,13 @@ const build = (ast:ast):string =>{
   ast.children.length == 1 ? `${ast.type}${build(ast.children[0])}`:
   ast.type == "=;" ? sfill("(()=>{const {} = {};\nreturn {}})()") :
   ast.type == "?:" ? sfill(`({}?{}:\n{})`, 0):
-  "not implemented: "+ast.type
+  // "not implemented: "+ast.type
+  ast.type == "typo" ? (()=>{throw new Error(ast.value)})():
+  (()=>{throw new Error("not implemented: "+ast.type)})()
 }
 
 const operator_weight = (op: ast['type']): number =>
-  op === "app" || op === "idx" ? 15 :
+  op === "app" || op === "index" ? 15 :
   unaryops.includes(op) ? 13 :     // Unary operators
   op === "*" || op === "/" || op === "%" ? 12 :
   op === "+" || op === "-" ? 11 :
@@ -206,7 +209,6 @@ const rearange = (nod:ast):ast => {
 
 const compile =(s:string) => build((rearange((parse(tokenize(s))))))
 
-
 export const getAst = (tokens:token[]):ast => rearange(parse(tokens))
 
 export const execAst = (parsed:ast):any => {
@@ -229,17 +231,12 @@ export const highlighted = (toks: token[]):{color:string}[][] =>{
     tok.type == "typo" ? 'red' :
     tok.type == "identifier" ? "#4444ff" :
     tok.type == "number" || tok.type=="string" || tok.type == "boolean" || tok.type== "comment" ? "green" :
-    tok.type == "symbol" ? "orange" :
+    tok.type == "symbol" ? "#aa4400" :
     "var(--color)"}]))
   const lines =  chs.slice(1).reduce((p, c)=>[...p.slice(0,-1), [...last(p), ...c[0]], ...c.slice(1)], chs[0])
   return lines.map(l=>l.map(c=>c.code.split('').map(ch=>({color:c.color}))).flat())
 }
 
-
-{
-  const toks = tokenize("\nx=2;\nx")
-  log(highlighted(toks))
-}
 
 {
   assertEq(tokenize("1"), [{type:"number", value:"1", start:0, end:1}])

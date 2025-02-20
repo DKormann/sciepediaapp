@@ -3,14 +3,6 @@ export type htmlKey = 'innerText'|'onclick'|'children'|'class'|'id'|'contentEdit
 
 
 
-console.log((()=>22).toString())
-
-// export type htmlComponent = {
-//   tag:string
-//   text:string
-//   cls:string
-//   args?:Partial<Record<htmlKey, any>>
-// }
 
 
 export const htmlElement = (tag:string, text:string, cls:string, args?:Partial<Record<htmlKey, any>>):HTMLElement =>{
@@ -19,9 +11,7 @@ export const htmlElement = (tag:string, text:string, cls:string, args?:Partial<R
   _element.innerText = text
   _element.setAttribute('class', cls)
   if (args) Object.entries(args).forEach(([key, value])=>{
-    if (key=='color'){
-      log({key})
-    }
+
     if (key==='children'){
       (value as HTMLElement[]).forEach(c=>_element.appendChild(c))
     }else if (key==='eventListeners'){
