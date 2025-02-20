@@ -9,7 +9,7 @@ export const htmlElement = (tag:string, text:string, cls:string, args?:Partial<R
 
   const _element = document.createElement(tag)
   _element.innerText = text
-  _element.setAttribute('class', cls)
+  if (cls) _element.classList.add(...cls.split('.').filter(x=>x))
   if (args) Object.entries(args).forEach(([key, value])=>{
 
     if (key==='children'){
@@ -29,6 +29,3 @@ export const htmlElement = (tag:string, text:string, cls:string, args?:Partial<R
   return _element
 }
 
-
-
-log("hello")

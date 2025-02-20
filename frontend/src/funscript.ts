@@ -49,11 +49,17 @@ const binaryops = ["+", "-", "*", "/", "%", "<", ">", "<=", ">=", "==", "!=", "&
 const unaryops = ["!", "neg", "..."]
 
 
+const newast = <T extends ast >(type:T["type"], start:number, end:number, children:ast[] = []):T =>{
+  if (binaryops.includes(type)) assertEq(children.length, 2, "newast error "+type)
+  if (ternaryops.includes(type)) assertEq(children.length, 3, "newast error "+type)
+  const res = {type, start, end, children: children} as T
+  return res
+}
+
 const parse = (tokens:token[]): ast => {
 
-  // const tokens = tokenize(code)
   const nonw = (idx:number): number =>
-    tokens[idx] == undefined? idx :tokens[idx].type == "whitespace" || tokens[idx].type == "comment" ? nonw(idx+1): idx
+    tokens[idx] == undefined? -1 :tokens[idx].type == "whitespace" || tokens[idx].type == "comment" ? nonw(idx+1): idx
 
   const nexttok = (prev: code| ast):number =>nonw(tokens.findIndex(t=>t.start >= prev.end))
 
@@ -62,7 +68,9 @@ const parse = (tokens:token[]): ast => {
 
   const parseKV = (idx:number):ast =>{
     const k = parseexpr(idx)
+    if (k.type == "typo") return k
     const colon = tokens[nexttok(k)]
+    if (colon == undefined) return {...k, type:"typo", value:"expected : or } after {", children:[]}
     if (k.type == "...") return k
     const v = (colon.value == ":") ? parseexpr(nexttok(colon)): k
     return {type:":", value:"", start:k.start, end:v.end, children:[ k.type=="identifier"? iden2string(k):k, v]}
@@ -71,15 +79,18 @@ const parse = (tokens:token[]): ast => {
   const parsegroup = (opener:token , idx: number):nary|nullary => {
     const closer = symbolpairs.find(s=>s[0] == opener.value)?.[1]
     if (closer == undefined) throw new Error("parsegroup error "+ opener.value+ " not an opener")
-      const type = opener.value + closer as (nary)["type"]
+      const type = "?=".includes(opener.value)? "()" : opener.value + closer  as (nary)["type"]
     const tok = tokens[idx]
-    if (tok == undefined) return {type: "typo", value: "expected "+closer, start: opener.start, end: opener.end, children:[]}
+    if (tok == undefined) return {type: "typo", value: `end of input. expected ${closer} because of ${opener.value}`, start: opener.start, end: last(tokens).end, children:[]}
     if (tok.value == closer) return {type, value:"", children:[], start: opener.start, end: tok.end}
     if (tok.value == ",") return parsegroup(opener, nexttok(tok))
-      
+    if ("])};:".includes(tok.value)) return {type: "typo", value: `cant parse ${type}. expected ${closer} because of ${opener.value}`, start: tok.start, end: tok.end, children:[]}
+
     const child = type == "{}" ? parseKV (idx) : parseexpr(idx)
+    if (child.type == "typo") return child
     const rest = parsegroup(opener, nexttok(child))
-    return rest.type == "typo" ? rest : {...rest, children:[child, ...rest.children]} as nary
+
+    return rest.type == "typo" ? rest : newast(type, opener.start, rest.end, [child, ...rest.children])
   }
 
   const astnode = (type:(ast)["type"], children:ast[]) => ({
@@ -116,24 +127,16 @@ const parse = (tokens:token[]): ast => {
 
       if (binaryops.includes(op)){
         const second = parseindivisible(nexttok(nextop))
-        const newNode = {
-          type: op,
-          value: "",
-          start: first.start,
-          end: second.end,
-          children: [first, nextop.value == "." ? iden2string(second as nullary):second]
-        } as binary;
+        const newNode = astnode(op, [first, nextop.value == "." ? iden2string(second as nullary):second])
         return parsecontinue(newNode)
       }
 
       if (ternaryops.includes(op)){
         const grp = parsegroup(nextop, nexttok(nextop))
         const els = parseexpr(nexttok(grp))
-        return parsecontinue({type:op, value:"", start:first.start, end:els.end, children:[first, grp.children[0], els]} as ternary)
-
+        return parsecontinue(astnode(op, [first, grp.children[0] || grp, els]))
       }
     }
-
     return first
   }
 
@@ -141,7 +144,6 @@ const parse = (tokens:token[]): ast => {
 
   const parseindivisible = (idx:number):nullary|unary|nary => {
     const tok = tokens[idx]
-
     const typo = {...tok, type:"typo", value:"unexpected "+ (tok?.value ??  "end of input"), children:[]} as nullary
     if (tok == undefined) return typo
     const op = (tok.value == '-')? "neg": tok.value
@@ -154,10 +156,19 @@ const parse = (tokens:token[]): ast => {
   }
 
   const parseexpr = (idx:number):ast=> parsecontinue(parseindivisible(idx))
-  return parseexpr(nonw(0))
+
+  const res= parseexpr(nonw(0))
+
+  // @ts-expect-error
+  assert (!res.children.includes(undefined))
+
+  if (nexttok(res) != -1) return {...res, start:0, end:last(tokens).end, type:"typo", value:"expected end "+tokens[nexttok(res)].value, children:[]}
+  return res
 }
 
 const build = (ast:ast):string =>{
+  const errs = flat_errors(ast)
+  if (errs.length > 0) throw new Error(errs.map(e=>e.value).join('\n'))
   const sfill = (template:string, i=0):string =>
     i == ast.children.length? template:
     sfill(template.replace("{}", build(ast.children[i])), i+1)
@@ -173,7 +184,7 @@ const build = (ast:ast):string =>{
   ast.type == "=;" ? sfill("(()=>{const {} = {};\nreturn {}})()") :
   ast.type == "?:" ? sfill(`({}?{}:\n{})`, 0):
   // "not implemented: "+ast.type
-  ast.type == "typo" ? (()=>{throw new Error(ast.value)})():
+  ast.type == "typo" ? (()=>{throw new Error(`${ast.value}`)})():
   (()=>{throw new Error("not implemented: "+ast.type)})()
 }
 
@@ -188,8 +199,12 @@ const operator_weight = (op: ast['type']): number =>
   op === "=>" ? 7 :
   -1;
 
-const rearange = (nod:ast):ast => {
 
+const rearange = (nod:ast):ast => {
+  assert(nod != undefined, "rearange error")
+  
+  //@ts-expect-error
+  if (nod.children.includes(undefined)) log(nod.children)
   const node = {...nod, children:nod.children.map(rearange)} as ast
 
   if (binaryops.includes(node.type)){
@@ -199,6 +214,7 @@ const rearange = (nod:ast):ast => {
     }
   }
   if (ternaryops.includes(node.type)){
+    assertEq(node.children.length, 3, "rearange error" +stringify(node))
     const [fst, snd, trd] = node.children
     if (binaryops.includes(fst.type) && operator_weight(fst.type) < operator_weight(node.type)){
       return rearange({...fst, children:[(fst.children[0]), {...node, children:[fst.children[1], snd, trd]}]} as ast)
@@ -222,21 +238,32 @@ export const execAst = (parsed:ast):any => {
   }
 }
 
-
 const runfun = (code:string):any =>execAst(getAst(tokenize(code)))
 
-type colored_line = {code:string, color:string}[]
+type colored_line = {code:string, cls:string}[]
 
-export const highlighted = (toks: token[]):{color:string}[][] =>{
-  const chs:colored_line[][] = toks.map(tok=> tok.value.split("\n").map(s=>[{code:s, color:
-    tok.type == "typo" ? 'var(--red)' :
-    tok.type == "identifier" || tok.type == "number" || tok.value=='.' ? "var(--code1)" :
-    tok.type=="string" || tok.type == "boolean" || tok.type== "comment" ? "var(--code2)" :
-    "?:=;".includes(tok.value) ? "var(--code3)" :
-    tok.type == "symbol" ? "var(--code4)" :
-    "var(--color)"}]))
+const range = (start:number, end:number):number[] => Array.from({length:end-start}, (_,i)=>i+start)
+
+const flat_errors = (ast:ast):token[] =>
+  ast.type == "typo" ? [ast]:
+  ast.children.map(flat_errors).flat()
+
+export const highlighted = (toks: token[], ast:ast):{cls:string}[][] =>{
+
+  const errors = new Set<number>(flat_errors(ast).map(e=>range(e.start, e.end)).flat())
+  // console.log("err:",errors)
+
+  const chs:colored_line[][] = toks.map(tok=> tok.value.split("\n").map(s=>[{code:s, cls:
+    (errors.has(tok.start) || errors.has(tok.end) ? '.err.' : '.')+
+    (tok.type == "typo" ? 'red' :
+    tok.type == "identifier" || tok.type == "number" || tok.value=='.' ? "code1" :
+    tok.type=="string" || tok.type == "boolean" || tok.type== "comment" ? "code2" :
+    "?:=;".includes(tok.value) ? "code3" :
+    tok.type == "symbol" ? "code4" :
+    "")}]))
   const lines =  chs.slice(1).reduce((p, c)=>[...p.slice(0,-1), [...last(p), ...c[0]], ...c.slice(1)], chs[0])
-  return lines.map(l=>l.map(c=>c.code.split('').map(ch=>({color:c.color}))).flat())
+  
+  return lines.map(l=>l.map(c=>c.code.split('').map(ch=>({cls:c.cls}))).flat())
 }
 
 

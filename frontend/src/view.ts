@@ -62,14 +62,14 @@ const buildPage = (r:Root, path:Path, indent:number):Pelement[] => {
   ]
 }
 
-const render = (par: Pelement, color?:{color:string}[]):Rendered=>(
+const render = (par: Pelement, color?:{cls:string}[]):Rendered=>(
   
   {...par,
     el: htmlElement('p', '', 'line', {children:[
         ...Array.from({length:par.indent}, _=>htmlElement('div', '', 'pad')),
         ...par.is_title? [htmlElement('span', par.content, 'title')]
         :insert(
-          color?par.content.split('').map((c,i)=>htmlElement('span', c, 'char', {color: color[i].color})):
+          color?par.content.split('').map((c,i)=>htmlElement('span', c, 'char'+color[i].cls,)):
           par.content.split(' ').map(w=>(' '+w).split('').map(c=>htmlElement('span', c, islink(w)?'link':'char'))).flat().slice(1),
 
           par.cursor, cursor()
@@ -138,21 +138,23 @@ const runscript =(s:State, start:number)=> {
   const code = getPageText(start, s)
   const codelines = code.split('\n')
   const toks = tokenize(code)
-  const colormap = highlighted(toks)
-
-  const fcl = firstPageLine(start, s)
-  const lol = lastPageLine(start, s)
-  const lcl = firstPageLine(lol, s)
-  
-  const s1 = 
-  setStateVar('p',[
+  try{
+    const ast = getAst(toks) 
+    const colormap = highlighted(toks, ast)
+    
+    const fcl = firstPageLine(start, s)
+    const lol = lastPageLine(start, s)
+    const lcl = firstPageLine(lol, s)
+    
+    const s1 = 
+    setStateVar('p',[
       ...s.p.slice(0,fcl+1),
-      ...colormap.map((l,i)=>render({...pg[i+1], content:codelines[i], is_title:undefined}, l)),
+      ...colormap.map((l,i)=>render({...pg[i+1], content:codelines[i], is_title:undefined, }, l)),
       ...s.p.slice(lcl)
     ])(s);
-  
-  const displayres = (lns:string[])=>
-    setLine([firstPageLine(lol, s1)+1,lol+1],
+    
+    const displayres = (lns:string[])=>
+      setLine([firstPageLine(lol, s1)+1,lol+1],
       ...lns.map(
         c=>render({
           ...s1.p[lol],
@@ -162,15 +164,17 @@ const runscript =(s:State, start:number)=> {
         })
       ))
 
-
-  try{
-    const res = stringify(execAst(getAst(toks))).split("\n")
-    return displayres(res)(s1)
-
-  }catch(e){
-    console.warn(e)
-    return displayres((e as Error).message.split("\n"))(s1)
-  }
+      try{
+        const res = stringify(execAst(ast)).split("\n")
+        return displayres(res)(s1)  
+      }catch(e){
+        console.warn(e)
+        return displayres((e as Error).message.split("\n"))(s1)
+      }
+    }catch(e){
+      console.error(e)
+      return
+    }
 }
 
 const cc = <T> (...fs:((a:T)=>T|void)[]) => (a:T) => fs.reduce((r,f)=>f(r)??r,a)
