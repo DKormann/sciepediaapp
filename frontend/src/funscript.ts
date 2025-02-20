@@ -142,7 +142,7 @@ const parse = (tokens:token[]): ast => {
   const parseindivisible = (idx:number):nullary|unary|nary => {
     const tok = tokens[idx]
 
-    const typo = {...tok, type:"typo", value:"unexpected "+ (tok?.value) ??  "end of input", children:[]} as nullary
+    const typo = {...tok, type:"typo", value:"unexpected "+ (tok?.value ??  "end of input"), children:[]} as nullary
     if (tok == undefined) return typo
     const op = (tok.value == '-')? "neg": tok.value
     const res:nary|unary|nullary  = tok.type == "symbol" ?
@@ -222,16 +222,18 @@ export const execAst = (parsed:ast):any => {
   }
 }
 
+
 const runfun = (code:string):any =>execAst(getAst(tokenize(code)))
 
 type colored_line = {code:string, color:string}[]
 
 export const highlighted = (toks: token[]):{color:string}[][] =>{
   const chs:colored_line[][] = toks.map(tok=> tok.value.split("\n").map(s=>[{code:s, color:
-    tok.type == "typo" ? 'red' :
-    tok.type == "identifier" ? "#4444ff" :
-    tok.type == "number" || tok.type=="string" || tok.type == "boolean" || tok.type== "comment" ? "green" :
-    tok.type == "symbol" ? "#aa4400" :
+    tok.type == "typo" ? 'var(--red)' :
+    tok.type == "identifier" || tok.type == "number" || tok.value=='.' ? "var(--code1)" :
+    tok.type=="string" || tok.type == "boolean" || tok.type== "comment" ? "var(--code2)" :
+    "?:=;".includes(tok.value) ? "var(--code3)" :
+    tok.type == "symbol" ? "var(--code4)" :
     "var(--color)"}]))
   const lines =  chs.slice(1).reduce((p, c)=>[...p.slice(0,-1), [...last(p), ...c[0]], ...c.slice(1)], chs[0])
   return lines.map(l=>l.map(c=>c.code.split('').map(ch=>({color:c.color}))).flat())

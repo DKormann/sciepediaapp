@@ -5,6 +5,16 @@ body{
     --highlight: #402157;
     --active: #4687ff;
 
+    --red: #ff0000;
+    --green: #007bff;
+
+    --code1: #8deeff;
+    --code2: #23ff6c;
+    --code3: #ffa348;
+    --code4: #e8f806;
+    --code5: #ae81ff;
+
+
     background-color: var(--background);
     color: var(--color);
 
@@ -23,6 +33,16 @@ body{
         --highlight: #42b6d6;
         --color: #121305;
         --active: #06348a;
+
+        --red: #aa0000;
+        --green: #00aa00;
+        
+        --code1: #2b97ad;
+        --code2: #5a6b39;
+        --code3: #902694;
+        --code4: #c76e08;
+        --code5: #752bff;
+
     }
 }
 
