@@ -87,7 +87,7 @@ const toggleLink = (lnum:number, start:number, end:number):Update=>s0=>{
   const prev = s.p.slice(0,lnum)
   const rest = s.p.slice(lnum+1)
   const scope = rest.findIndex(p=>p.indent==target.indent)
-  return setStateVar('p',[...prev,
+  return log(setStateVar('p',[...prev,
     ... (scope <= 0)?[
       {...target, content:target.content.slice(0,end), el:undefined},
       ...buildPage(s.r, link.slice(1).split("."), target.indent+1).map(p=>render(p)),
@@ -97,7 +97,7 @@ const toggleLink = (lnum:number, start:number, end:number):Update=>s0=>{
       render({...target, content: target.content+rest[scope].content, el:undefined}),
       ...rest.slice(scope+1),
     ]
-  ].map(p=>render(p)))(s)
+  ].map(p=>render(p)))(s))
 }
 
 const cursor = ()=>htmlElement('div', '', 'cursor')
@@ -222,10 +222,13 @@ const cursorMove=(dl:number, dc:number):Update => s=>{
     if (newp == undefined || newp.is_title) return s
     return setCursor(ln, newp.content.length)(s)
   }
-  if (cn>newp.content.length && dc){
+  if (cn>newp.content.length){
+    if (dc){
       const newp = getLines(ln+1)(s)[0]
       if (newp == undefined || newp.is_title) return s
       return setCursor(ln+1, 0)(s)
+    }
+    return setCursor(ln, newp.content.length)(s)
   }
   return setCursor(ln,cn)(s)
 }
@@ -283,8 +286,9 @@ export const createView = (putDisplay:(el:HTMLElement)=>void) => {
   const show = (s:State)=>cc<State>(
 
     s=>{
+      log(s.cursor)
       const l = getLines(s.cursor)(s)[0]
-      if (last(l.path) == "fs"){
+      if (l!=undefined&& last(l.path) == "fs"){
         return runscript(s, s.cursor)
       }
     },
@@ -399,7 +403,7 @@ export const createView = (putDisplay:(el:HTMLElement)=>void) => {
     show
   )({
       r,
-      p: buildPage(r, ['script', 'fs'], 1).map(p=>render(p)),
+      p: buildPage(r, ['hello'], 1).map(p=>render(p)),
       cursor: 0,
       store:store,
       hist: [],
