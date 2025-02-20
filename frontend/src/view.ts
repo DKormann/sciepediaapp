@@ -9,15 +9,10 @@ import { Store , store, teststore} from './_store'
 import { 
   getAst,
   execAst,
-  ast,
-  token,
   tokenize,
   highlighted,
+  } from './funscript'
 
-   } from './funscript'
-
-const max = Math.max
-const abs = Math.abs
 
 type State = {
   r: Root,
@@ -194,6 +189,7 @@ const findLine = (p:Rendered[],y:number):number=>p.findIndex(({el})=>el.clientHe
 
 const letters = (p:Rendered) => (Array.from(p.el.children).filter(x=>x.nodeName=='SPAN') as HTMLElement[])
 
+
 const findChar = (p:Rendered, x:number) =>{
   const ls = letters(p)
   const i = ls.findIndex(e=>(e.offsetLeft +e.offsetWidth/2) > x)
@@ -282,7 +278,7 @@ const flatprint = (p:Rendered[])=> p.map((p,i)=>`${i}:`+"->".repeat(p.indent)+p.
 
 }
 
-export const view = (putHTML:(el:HTMLElement)=>void) => {
+export const createView = (putDisplay:(el:HTMLElement)=>void) => {
 
   const show = (s:State)=>cc<State>(
 
@@ -305,7 +301,7 @@ export const view = (putHTML:(el:HTMLElement)=>void) => {
         }
       }
 
-      putHTML(htmlElement('div', '', 'root',{
+      putDisplay(htmlElement('div', '', 'root',{
         children: s.p.map(p=>p.el),
         eventListeners:{
           click: onclick,

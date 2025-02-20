@@ -1,6 +1,6 @@
 
 import "./style.css"
-import { view } from "./view"
+import { createView } from "./view"
 
 
 const viewer = document.createElement('div')
@@ -8,11 +8,11 @@ viewer.setAttribute('id', 'viewer')
 document.body.appendChild(viewer)
 
 
-view((el:HTMLElement)=>{
+createView((el:HTMLElement)=>{
   viewer.childNodes.forEach(c=>c.remove())
   viewer.appendChild(el)
   el.tabIndex = el.tabIndex ?? 0
   el.focus()
 })
 
-import "./funscript"
+// import "./funscript"
