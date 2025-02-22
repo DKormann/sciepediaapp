@@ -1,5 +1,5 @@
 import { log } from "./helpers"
-export type htmlKey = 'innerText'|'onclick'|'children'|'class'|'id'|'contentEditable'|'eventListeners'|'color'
+export type htmlKey = 'innerText'|'onclick'|'children'|'class'|'id'|'contentEditable'|'eventListeners'|'color'|'background'
 
 
 
@@ -18,9 +18,9 @@ export const htmlElement = (tag:string, text:string, cls:string, args?:Partial<R
       Object.entries(value as Record<string, (e:Event)=>void>).forEach(([event, listener])=>{
         _element.addEventListener(event, listener)
       })
-    }else if (key === 'color'){
+    }else if (key === 'color' || key === 'background'){
 
-      _element.style.color = value
+      _element.style[key] = value
 
     }else{
       _element[(key as 'innerText' | 'onclick' | 'id' | 'contentEditable')] = value

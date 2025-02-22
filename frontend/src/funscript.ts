@@ -251,7 +251,6 @@ const flat_errors = (ast:ast):token[] =>
 export const highlighted = (toks: token[], ast:ast):{cls:string}[][] =>{
 
   const errors = new Set<number>(flat_errors(ast).map(e=>range(e.start, e.end)).flat())
-  // console.log("err:",errors)
 
   const chs:colored_line[][] = toks.map(tok=> tok.value.split("\n").map(s=>[{code:s, cls:
     (errors.has(tok.start) || errors.has(tok.end) ? '.err.' : '.')+
