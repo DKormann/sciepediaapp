@@ -38,7 +38,8 @@ export const stringify = (x:any):string =>
   :JSON.stringify(x)
 
 export type LastT <S,T> = [...S[], T]
-export const setAttr=<T>(key:string, value:any)=>(item:T):T=>({...item, [key]:value})
+export const setAttr=<T>(key:keyof T, value:any)=>(item:T):T=>({...item, [key]:value})
+
 export const last = <T>(arr:LastT<any,T> | T[]):T => arr[arr.length-1]
 
 

@@ -18,7 +18,7 @@ type State = {
   r: Root,
   p: Rendered[],
   store: Store,
-  cursor: number,
+  // selection?: {start:number, end:number},
   hist: State [],
 }
 
@@ -36,7 +36,8 @@ type Pelement = {
   path:Path,
   is_title ?: true,
   el?:HTMLElement,
-  cursor:number ,
+  // cursor: number,
+  selection?: {start:number, end:number},
 }
 
 type Rendered = Pelement & {
@@ -49,7 +50,7 @@ const buildPage = (r:Root, path:Path, indent:number):Pelement[] => {
   const node = getData(r, path)
   const tit = node.path.join('.')
   return [
-    {content:tit,path,indent,is_title:true, children:[], cursor:-1},
+    {content:tit,path,indent,is_title:true, children:[]},
     ...node.Content.split('\n').map(c=>({content:c, indent, path, children:[], cursor:-1})),
     ...(last(path) == 'fs' ? 
     buildPage(r, path.concat(">>>"), indent+1)
@@ -64,10 +65,10 @@ const render = (par: Pelement, color?:{cls:string}[]):Rendered=>(
         ...Array.from({length:par.indent}, _=>htmlElement('div', '', 'pad')),
         ...par.is_title? [htmlElement('span', par.content, 'title')]
         :insert(
-          color?par.content.split('').map((c,i)=>htmlElement('span', c, 'char'+color[i].cls,)):
-          par.content.split(' ').map(w=>(' '+w).split('').map(c=>htmlElement('span', c, islink(w)?'link':'char'))).flat().slice(1),
-
-          par.cursor, cursor()
+          color != undefined
+          ? par.content.split('').map((c,i)=>htmlElement('span', c, 'char'+color[i].cls,))
+          : par.content.split(' ').map(w=>(' '+w).split('').map(c=>htmlElement('span', c, islink(w)?'link':'char'))).flat().slice(1),
+          par.selection?.end, cursor()
         )
       ],
       ...color?{color}:{}
@@ -80,7 +81,7 @@ const insert = <T>(arr:T[], idx:number|undefined, ...elements:T[])=>{
 } 
 
 const toggleLink = (lnum:number, start:number, end:number):Update=>s0=>{
-  const s = pushhist(clearCursor(s0))
+  const s = pushhist(resetSelection(s0))
   const target = s.p[lnum]
   const link = target.content.slice(start,end)
   assertEq(islink(link), true, 'open non link:'+link)
@@ -111,7 +112,8 @@ const updateLines = (lnum:number|[number,number], f:(p:Pelement[])=>Pelement[]):
 const setLine = (line:number|[number, number], ...lines: Pelement[]):Update=>s=>{
   const [start,end] = (typeof line == 'number')?[line,line+1]:line
   assertEq(end>=start, true, `end>=start ${end}>=${start}`);
-  const focusline = lines.findIndex(p=>p.cursor>-1)
+  const targetpath = (lines? lines[0] : s.p[start]).path
+  const selected_lines = lines.filter(p=>p.selection)
   return cc(
     setStateVar('p',[
     ...s.p.slice(0,start),
@@ -120,9 +122,8 @@ const setLine = (line:number|[number, number], ...lines: Pelement[]):Update=>s=>
     ]),
 
     s=>setStateVar("r", setData(s.r,
-      child(lines[0].path.join("."),
+      child(targetpath.join("."),
       seekPage(start,s).slice(1).map(p=>p.content).join("\n"))))(s),
-    setStateVar('cursor', focusline == -1? s.cursor: start+focusline)
   )(s)
 }
 
@@ -154,7 +155,7 @@ const runscript =(s:State, start:number)=> {
         c=>render({
           ...s1.p[lol],
           content:c,
-          cursor:-1,
+          // cursor:-1,
           is_title:undefined,
         })
       ))
@@ -174,21 +175,24 @@ const runscript =(s:State, start:number)=> {
 
 const cc = <T> (...fs:((a:T)=>T|void)[]) => (a:T) => fs.reduce((r,f)=>f(r)??r,a)
 
-const clearCursor:Update = cc(
-  s=>s.cursor>-1?updateLines(s.cursor,([p])=>([{...p, cursor:-1, el:undefined}]))(s):s,
-  setAttr('cursor', [-1,-1])
-)
+const resetSelection:Update = s=> setStateVar('p', s.p.map(p=>(render({...p, selection:undefined, el:undefined}))))(s)
+
+const clamp = (n:number, min:number, max:number) => Math.min(Math.max(n,min),max)
 
 const setCursor = (lnum:number, cnum:number):Update=>cc(
-  clearCursor,
-  updateLines(lnum, ([p])=>([{...p, cursor:cnum, el:undefined}])),
-  setAttr('cursor', lnum),
+  resetSelection,
+  updateLines(lnum, ([p])=>(p==undefined?[]:[{...p, selection:{start:cnum, end:cnum}, el:undefined}])),
 )
+
+const getSelection = (s:State) =>{
+  const start = s.p.findIndex(p=>p.selection)
+  if (start == -1) return undefined
+  return [start,s.p.slice(start).findIndex(p=>!p.selection) + start] as [number,number]
+}
 
 const findLine = (p:Rendered[],y:number):number=>p.findIndex(({el})=>el.clientHeight + el.offsetTop > y)
 
 const letters = (p:Rendered) => (Array.from(p.el.children).filter(x=>x.nodeName=='SPAN') as HTMLElement[])
-
 
 const findChar = (p:Rendered, x:number) =>{
   const ls = letters(p)
@@ -212,25 +216,8 @@ const seekWord = (p:Pelement, c:number) => [c-last(p.content.slice(0,c).split(' 
 type Update = (s:State) => State
 
 const cursorMove=(dl:number, dc:number):Update => s=>{
-  const old = getLines(s.cursor)(s)[0]
-  const [ln, cn] = [s.cursor+dl, old.cursor+dc]
-  const newp = getLines(ln)(s)[0]
-  if (newp == undefined || newp.is_title) return s
-  if (cn<0) {
-    const ln = s.cursor-1
-    const newp = getLines(ln)(s)[0]
-    if (newp == undefined || newp.is_title) return s
-    return setCursor(ln, newp.content.length)(s)
-  }
-  if (cn>newp.content.length){
-    if (dc){
-      const newp = getLines(ln+1)(s)[0]
-      if (newp == undefined || newp.is_title) return s
-      return setCursor(ln+1, 0)(s)
-    }
-    return setCursor(ln, newp.content.length)(s)
-  }
-  return setCursor(ln,cn)(s)
+  const cl = (getSelection(s)??[0])[0]
+  return setCursor(Math.min(s.p.length-1, Math.max(0,cl+dl)), getLines(cl)(s)[0].selection!.start+dc)(s)
 }
 
 const pushhist:Update = s=> (
@@ -238,7 +225,6 @@ const pushhist:Update = s=> (
 uuid(last(s.hist)).id
 ) ?setStateVar('hist', [...s.hist.slice(-10), s])(s):(log('no change'), s))
 
-const flatprint = (p:Rendered[])=> p.map((p,i)=>`${i}:`+"->".repeat(p.indent)+p.content).join("\n")
 
 {
   // unit tests
@@ -286,11 +272,13 @@ export const createView = (putDisplay:(el:HTMLElement)=>void) => {
   const show = (s:State)=>cc<State>(
 
     s=>{
-      log(s.cursor)
-      const l = getLines(s.cursor)(s)[0]
-      if (l!=undefined&& last(l.path) == "fs"){
-        return runscript(s, s.cursor)
-      }
+      // log(s.selection)
+      // if (s.selection) {
+      //   const l = getLines([sel[0], s.selection.end])(s)[0]
+      //   if (last(l.path) == "fs"){
+      //     return runscript(s, sel[0])
+      //   }
+      // }
     },
     s=>{
       const onclick = (e:MouseEvent)=>{
@@ -315,73 +303,86 @@ export const createView = (putDisplay:(el:HTMLElement)=>void) => {
 
             if (e.key.startsWith("Arrow")){
               e.preventDefault()
+              const sel = getSelection(s)
+              if (sel == undefined) return
 
-              const par = getLines(s.cursor)(s)[0];
-              const st = e.altKey?5
-              :e.metaKey?(
-                e.key == 'ArrowUp'?s.p.slice(0,s.cursor).reverse().findIndex(p=>p.is_title)
-                :e.key == 'ArrowDown'?(s.p.slice(s.cursor).concat({...par,indent:par.indent-1})).findIndex(p=>p.indent<par.indent)-1
-                :e.key == 'ArrowLeft'?par.cursor
-                :par.content.length-par.cursor
-              )
-              :1
+              const y = sel[0]
+              const l = s.p[y]
+              const x = l.selection!.start
 
-              return show(cursorMove(
-                e.key == 'ArrowUp'?-st:e.key == 'ArrowDown'?st:0,
-                e.key == 'ArrowLeft'?-st:e.key == 'ArrowRight'?st:0)(s))
+              const [ny,nx]:[number,number] = e.key == 'ArrowUp' ?
+                [e.altKey ? y-5 : e.metaKey ? firstPageLine(y, s)+1 : y-1, x]
+                : e.key == 'ArrowDown' ?
+                [e.altKey ? y+5 : e.metaKey ? lastPageLine(y, s) : y+1, x]
+                : e.key == 'ArrowLeft' ?
+                [y, Math.max(0,e.altKey ? x-5 : e.metaKey ? 0 : x-1)]
+                : e.key == 'ArrowRight' ?
+                [y, e.altKey ? x+5 : e.metaKey ? l.content.length : x+1]
+                : [y,x]
+              const [nny, nnx]= [clamp(ny,0,s.p.length-1), clamp(nx,0,l.content.length)]
+              if (s.p[nny].is_title) return
+              return show(setCursor(nny,Math.min(nx, l.content.length))(s))
             }
-            if (e.key == 'Enter') {
-              cc(
+
+            if (e.key == 'Backspace'){
+              const sel = getSelection(s)
+              if (sel == undefined) return
+              const x = s.p[sel[0]].selection!.start
+              const newx = Math.max(0, x- (e.altKey ? 5 : e.metaKey ? 100 : 1))
+              return cc<State>(
+                s=>{
+                  if (x == 0){
+                    const prev = s.p[sel[0]-1]
+                    if (prev == undefined || prev.is_title) return
+                    return updateLines([sel[0]-1,sel[0]+1], ([p1,p2])=>[{...p1, content:p1.content+p2.content, selection:{start:p1.content.length, end:p1.content.length}}])(s)
+                  }
+                  return updateLines(sel[0], ([p])=>[{...p, content:p.content.slice(0,newx)+p.content.slice(x), selection:{start:newx, end:newx}}])(s)
+                },
                 pushhist,
-                updateLines(s.cursor, ([p])=>([
-                  {...p, content:p.content.slice(0,p.cursor), cursor:-1},
-                  {...p, content:p.content.slice(p.cursor), cursor:0},
-                ])),
-                show
+                show,
               )(s)
-              return
-            }
-            if (e.key == 'Backspace') {
-              const speed = e.altKey?5:e.metaKey?getLines(s.cursor)(s)[0].cursor:1
-              return show(updateLines([s.cursor-1, s.cursor+1], ps=>{
-                if (ps.length==0) return []
 
-                if (ps.length==1) {
-                  const p = ps[0]
-                  return [{...p, content:p.content.slice(0,p.cursor-speed)+p.content.slice(p.cursor), cursor:Math.max(0, p.cursor!-speed)}]
-                }else{
-                  const [p1,p2] = ps
-                  return (p2.cursor>0 || p1.indent!=p2.indent)?
-                  [p1, {...p2, content:p2.content.slice(0,Math.max(0,p2.cursor-speed))+p2.content.slice(p2.cursor), cursor:Math.max(0,p2.cursor-speed)}]
-                  :[{...p1, content:p1.content  +p2.content, cursor:p1.content.length+1-speed}]
-                }
-              })(pushhist(s)))
             }
-            if (e.key == 'Delete') return
             if (e.key == 'Tab') {
               if (e.metaKey || e.shiftKey) return
               e.preventDefault()
-              return show(updateLines(s.cursor, ([p])=>([{...p, content:p.content.slice(0,p.cursor)+'  '+p.content.slice(p.cursor) , cursor:p.cursor+2}]))(s))
+              const sel = getSelection(s)
+              if (sel == undefined) return
+              return show(updateLines(sel[0] ?? 0, ([p])=>([{...p, content:p.content.slice(0,p.selection?.start ?? 0)+'  '+p.content.slice(p.selection?.start ?? 0) , selection:{start:(p.selection?.start ?? 0) + 2, end:(p.selection?.start ?? 0) + 2}}]))(s))
+            }
+
+            if (e.key == 'Enter'){
+              const sel = getSelection(s)
+              if (sel == undefined) return
+              const x = s.p[sel[0]].selection!.start
+              // const x = 
+              return cc<State>(
+                updateLines(sel[0], ([p])=>[{...p, content:p.content.slice(0,x), selection:undefined}, {...p, content:p.content.slice(x), selection:{start:0, end:0}}]),
+                pushhist,
+                show,
+              )(s)
             }
 
             if (e.key == 'Escape') return
-            if (e.key.length==1){
+            if (e.key.length==1){ // letter
             
-              if (e.metaKey) {
-                if (e.key == 'z'){
-                  log('undo')
-                  if (s.hist.length) show({
-                    ...last(s.hist),
-                    hist: s.hist.slice(0,-1)
-                  })
-                }
-                return
-              }
-              if (s.cursor == -1) return
+              // if (e.metaKey) {
+              //   if (e.key == 'z'){
+              //     log('undo')
+              //     if (s.hist.length) show({
+              //       ...last(s.hist),
+              //       hist: s.hist.slice(0,-1)
+              //     })
+              //   }
+              //   return
+              // }
+              const sel = getSelection(s)
+              if (sel == undefined) return
               cc<State>(
                 pushhist,
-                updateLines(s.cursor, ([p])=>([{...p, content:p.content.slice(0,p.cursor)+e.key+p.content.slice(p.cursor) , cursor:p.cursor+1}])),
-                show
+                updateLines(log("sel:",sel[0]), 
+                  ([p])=>([{...log(p), content:p.content.slice(0,p.selection?.start ?? 0)+e.key+p.content.slice(p.selection?.start ?? 0), selection:log('newp s',{start:(p.selection?.start ?? 0) + 1, end:(p.selection?.start ?? 0) + 1})}])),
+                show,
               )(s)
               return
             }
@@ -394,7 +395,7 @@ export const createView = (putDisplay:(el:HTMLElement)=>void) => {
   const r = 
   store.get('root') ??
   root(
-    child('hello', 'hello #world'),
+    child('hello', 'hello world'),
     child('script.fs', "\nfib = (n) =>\n  n<2 ? n :\n  fib(n-1) + fib(n-2);\n\nfastfib = (n) =>\n  _fib = n =>\n    n == 0 ? [1,0]:\n    [a,b] = _fib(n-1);\n    [b,a+b];\n  _fib(n)[0];\n\n\n[fib(7), fastfib(70)]\n"),
     child('script.fs.>>>',"RESULT")
 )
@@ -404,7 +405,6 @@ export const createView = (putDisplay:(el:HTMLElement)=>void) => {
   )({
       r,
       p: buildPage(r, ['hello'], 1).map(p=>render(p)),
-      cursor: 0,
       store:store,
       hist: [],
   })
