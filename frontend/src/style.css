@@ -100,6 +100,10 @@ p {
   font-family: monospace;
 }
 
+.selected{
+  background-color: var(--highlight);
+}
+
 .code1{ color: var(--code1); }
 .code2{ color: var(--code2); }
 .code3{ color: var(--code3); }

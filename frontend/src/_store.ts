@@ -29,7 +29,7 @@ class PersistantStore {
       return new PersistantStore(true, null)
     }
     if (this._side_store){
-      console.warn('WARNING: side store initialized')
+      console.error('WARNING: side store initialized')
       const mapcopy = new Map(this._side_store)
       return new PersistantStore(false, mapcopy.set(key, val))
     } else throw new Error('side store not initialized')

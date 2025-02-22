@@ -4,7 +4,7 @@ import {Root as Root, getData, setData, Child, Path, root, child} from './data'
 import { htmlElement, htmlKey } from './_html'
 import "./funscript"
 
-import { assertEq, comp, log, last, LastT, stringify, setAttr, uuid} from './helpers'
+import { assertEq, comp, log, last, LastT, stringify, setAttr, uuid, assert} from './helpers'
 import { Store , store, teststore} from './_store'
 import { 
   getAst,
@@ -18,7 +18,7 @@ type State = {
   r: Root,
   p: Rendered[],
   store: Store,
-  // selection?: {start:number, end:number},
+  mousestart?:{p: number, c: number},
   hist: State [],
 }
 
@@ -58,31 +58,33 @@ const buildPage = (r:Root, path:Path, indent:number):Pelement[] => {
   ]
 }
 
-const render = (par: Pelement, color?:{cls:string}[]):Rendered=>(
-  
-  {...par,
+const render = (par: Pelement, color?:{cls:string}[]):Rendered=>{
+  const sel = par.selection? [par.selection.start, par.selection.end].sort((a,b)=>a-b) as [number, number]:undefined
+  return {...par,
     el: htmlElement('p', '', 'line', {children:[
         ...Array.from({length:par.indent}, _=>htmlElement('div', '', 'pad')),
         ...par.is_title? [htmlElement('span', par.content, 'title')]
         :insert(
           color != undefined
           ? par.content.split('').map((c,i)=>htmlElement('span', c, 'char'+color[i].cls,))
-          : par.content.split(' ').map(w=>(' '+w).split('').map(c=>htmlElement('span', c, islink(w)?'link':'char'))).flat().slice(1),
+          : par.content.split(' ').map(w=>(' '+w).split('').map(c=>({c,w}))).flat().slice(1)
+            .map(({c,w},i)=>htmlElement('span', c, (islink(w)?'link':'char') +
+              (sel && i>=sel[0] && i<sel[1] ? ".selected" : "")
+          )),
           par.selection?.end, cursor()
         )
       ],
       ...color?{color}:{}
-    }
-  )
-})
+    })
+  }
+}
 
 const insert = <T>(arr:T[], idx:number|undefined, ...elements:T[])=>{
   return idx!=undefined && idx>=0?[...arr.slice(0,idx), ...elements, ...arr.slice(idx)]:arr
 } 
 
 const toggleLink = (lnum:number, start:number, end:number):Update=>s0=>{
-  log('toggle link')
-  const s = pushhist(resetSelection(s0))
+  const s = pushhist(s0)
   const target = s.p[lnum]
   const link = target.content.slice(start,end)
   assertEq(islink(link), true, 'open non link:'+link)
@@ -105,15 +107,15 @@ const toggleLink = (lnum:number, start:number, end:number):Update=>s0=>{
 const cursor = ()=>htmlElement('div', '', 'cursor')
 
 const getLines = (lnum:number|[number,number|undefined]) => (s:State) => 
-  ((typeof lnum == 'number')?[s.p[lnum]]:s.p.slice(lnum[0],lnum[1]))
+  ((typeof lnum == 'number')?[s.p[lnum]]:s.p.slice(...lnum[0]> lnum[1]!? [lnum[1],lnum[0]]:lnum)).map(p=>p)
 
-const updateLines = (lnum:number|[number,number], f:(p:Pelement[])=>Pelement[]):Update=>s=>
+const updateLines = (lnum:number|[number,number], f:(p:Pelement[])=>Pelement[]):Update => s=>
   setLine(lnum, ...f(getLines(lnum)(s)))(s)
 
 const setLine = (line:number|[number, number], ...lines: Pelement[]):Update=>s=>{
-  const [start,end] = (typeof line == 'number')?[line,line+1]:line
-  assertEq(end>=start, true, `end>=start ${end}>=${start}`);
-  const targetpath = (lines? lines[0] : s.p[start]).path
+  const [start,end] = ((typeof line == 'number')?[line,line+1]:line).sort((a,b)=>a-b)
+  assert(end>=start, `end>=start ${end}>=${start}`);
+  const targetpath = (lines.length? lines[0] : s.p[start]).path
   const selected_lines = lines.filter(p=>p.selection)
   return cc(
     setStateVar('p',[
@@ -129,50 +131,50 @@ const setLine = (line:number|[number, number], ...lines: Pelement[]):Update=>s=>
 }
 
 
-const runscript =(s:State, start:number)=> {
+// const runscript =(s:State, start:number)=> {
 
-  const pg = seekPage(start, s)
-  const code = getPageText(start, s)
-  const codelines = code.split('\n')
-  const toks = tokenize(code)
-  try{
-    const ast = getAst(toks) 
-    const colormap = highlighted(toks, ast)
+//   const pg = seekPage(start, s)
+//   const code = getPageText(start, s)
+//   const codelines = code.split('\n')
+//   const toks = tokenize(code)
+//   try{
+//     const ast = getAst(toks) 
+//     const colormap = highlighted(toks, ast)
     
-    const fcl = firstPageLine(start, s)
-    const lol = lastPageLine(start, s)
-    const lcl = firstPageLine(lol, s)
+//     const fcl = firstPageLine(start, s)
+//     const lol = lastPageLine(start, s)
+//     const lcl = firstPageLine(lol, s)
     
-    const s1 = 
-    setStateVar('p',[
-      ...s.p.slice(0,fcl+1),
-      ...colormap.map((l,i)=>render({...pg[i+1], content:codelines[i], is_title:undefined, }, l)),
-      ...s.p.slice(lcl)
-    ])(s);
+//     const s1 = 
+//     setStateVar('p',[
+//       ...s.p.slice(0,fcl+1),
+//       ...colormap.map((l,i)=>render({...pg[i+1], content:codelines[i], is_title:undefined, }, l)),
+//       ...s.p.slice(lcl)
+//     ])(s);
     
-    const displayres = (lns:string[])=>
-      setLine([firstPageLine(lol, s1)+1,lol+1],
-      ...lns.map(
-        c=>render({
-          ...s1.p[lol],
-          content:c,
-          // cursor:-1,
-          is_title:undefined,
-        })
-      ))
+//     const displayres = (lns:string[])=>
+//       setLine([firstPageLine(lol, s1)+1,lol+1],
+//       ...lns.map(
+//         c=>render({
+//           ...s1.p[lol],
+//           content:c,
+//           // cursor:-1,
+//           is_title:undefined,
+//         })
+//       ))
 
-      try{
-        const res = stringify(execAst(ast)).split("\n")
-        return displayres(res)(s1)  
-      }catch(e){
-        console.warn(e)
-        return displayres((e as Error).message.split("\n"))(s1)
-      }
-    }catch(e){
-      console.error(e)
-      return
-    }
-}
+//       try{
+//         const res = stringify(execAst(ast)).split("\n")
+//         return displayres(res)(s1)  
+//       }catch(e){
+//         console.warn(e)
+//         return displayres((e as Error).message.split("\n"))(s1)
+//       }
+//     }catch(e){
+//       console.error(e)
+//       return
+//     }
+// }
 
 const cc = <T> (...fs:((a:T)=>T|void)[]) => (a:T) => fs.reduce((r,f)=>f(r)??r,a)
 
@@ -185,13 +187,24 @@ const setCursor = (lnum:number, cnum:number):Update=>cc(
   updateLines(lnum, ([p])=>(p==undefined?[]:[{...p, selection:{start:cnum, end:cnum}, el:undefined}])),
 )
 
-const getSelection = (s:State) =>{
+const setSelection = ([[sl, sc], [el, ec]]:[[number,number],[number,number]]):Update=>cc(
+  resetSelection,
+  updateLines([sl,el+1], (ps)=>
+    ps.map((p,i)=>({...p, selection:{ start: i==0?sc:0, end: i==ps.length-1?ec:p.content.length}, el:undefined}))
+  )
+)
+
+const getSelection = (s:State):[number,number] | undefined =>{
   const start = s.p.findIndex(p=>p.selection)
   if (start == -1) return undefined
-  return [start,s.p.slice(start).findIndex(p=>!p.selection) + start] as [number,number]
+  const rng = s.p.slice(start).findIndex(p=>!p.selection)
+  if (rng == -1) return [start, start +1]
+  return [start, rng+ start] as [number,number]
 }
 
-const findLine = (p:Rendered[],y:number):number=>p.findIndex(({el})=>el.clientHeight + el.offsetTop > y)
+
+function findLine (p:Rendered[],y:number):number 
+{return p.findIndex(({el})=>el.clientHeight + el.offsetTop > y)}
 
 const letters = (p:Rendered) => (Array.from(p.el.children).filter(x=>x.nodeName=='SPAN') as HTMLElement[])
 
@@ -215,11 +228,6 @@ const getPageText = (pn:number, s:State) => seekPage(pn, s).slice(1).map(p=>p.co
 const seekWord = (p:Pelement, c:number) => [c-last(p.content.slice(0,c).split(' ')).length , c+p.content.slice(c).split(' ')[0].length]
 
 type Update = (s:State) => State
-
-const cursorMove=(dl:number, dc:number):Update => s=>{
-  const cl = (getSelection(s)??[0])[0]
-  return setCursor(Math.min(s.p.length-1, Math.max(0,cl+dl)), getLines(cl)(s)[0].selection!.start+dc)(s)
-}
 
 const pushhist:Update = s=> (
   (last (s.hist) == undefined || uuid(s).id != 
@@ -282,26 +290,43 @@ export const createView = (putDisplay:(el:HTMLElement)=>void) => {
       // }
     },
     s=>{
-      const onclick = (e:MouseEvent)=>{
-        const p = findLine(s.p, e.y+window.scrollY)
-        if (p === -1) return
-        const c = findChar(s.p[p], e.x+window.scrollX)
-        const [a,b] = seekWord(s.p[p],c)
-        if (islink(s.p[p].content.slice(a,b))){
-          show(toggleLink(p,a,b)(s))
-        }else{
-          show(setCursor(p,c)(s))
-        }
-      }
-
       putDisplay(htmlElement('div', '', 'root',{
         children: s.p.map(p=>p.el),
         eventListeners:{
-          click: onclick,
+          click: (e:MouseEvent)=>{
+            const p = findLine(s.p, e.y+window.scrollY)
+            if (p === -1) return
+            const c = findChar(s.p[p], e.x+window.scrollX)
+            const [a,b] = seekWord(s.p[p],c)
+            if (islink(s.p[p].content.slice(a,b))){
+              show(toggleLink(p,a,b)(s))
+            }else{
+              show(setCursor(...[p,c] as [number, number])(s))
+            }
+          },
+
+          mousedown: (e:MouseEvent)=>{
+            log('mousedown')
+            const p = findLine(s.p, e.y+window.scrollY)
+            if (p === -1) return
+            show(setStateVar('mousestart', {p, c:findChar(s.p[p], e.x+window.scrollX)})(s))
+          },
+          mouseup: (_:MouseEvent)=>(log('mouseup'),show(setStateVar('mousestart', undefined)(s))),
+          mousemove: (e:MouseEvent)=>{
+            if (!s.mousestart) return
+            // log('mousemovestart')
+            const p = findLine(s.p, e.y+window.scrollY)
+            if (p === -1) return
+            const c = findChar(s.p[p], e.x+window.scrollX)
+            // log(p,c)
+            show(setSelection([[s.mousestart!.p, s.mousestart!.c],[p,c]])(s))
+            // log('mousemoveend')
+          },
+
           keydown: (e:KeyboardEvent)=>{
             
+            if (['Meta', 'Alt', 'Control', 'Shift'].includes(e.key)) return
             if (e.key == 'Escape') return
-            e.preventDefault()
 
             const sel = getSelection(s)
             if (sel == undefined) return
@@ -328,8 +353,12 @@ export const createView = (putDisplay:(el:HTMLElement)=>void) => {
                 }
                 if (e.key == 'Enter')
                   return updateLines(sel[0], ([p])=>[{...p, content:p.content.slice(0,x), selection:undefined}, {...p, content:p.content.slice(x), selection:{start:0, end:0}}])(s)
-                if (e.key == 'Tab')
+                if (e.key == 'Escape') e.preventDefault()
+                if (e.key == 'Tab'){
+                  e.preventDefault()
                   return updateLines(sel, ([p])=>([{...p, content:p.content.slice(0,x)+'  '+p.content.slice(x), selection:{start:x+2, end:x+2}}]))(s)
+                }
+
                 if (e.key == 'Backspace'){
                   const newx = Math.max(0, x- (e.altKey ? 5 : e.metaKey ? 100 : 1))
                   if (x == 0){
@@ -339,8 +368,10 @@ export const createView = (putDisplay:(el:HTMLElement)=>void) => {
                   }
                   return updateLines(sel, ([p])=>[{...p, content:p.content.slice(0,newx)+p.content.slice(x), selection:{start:newx, end:newx}}])(s)
                 }
-                if (e.key.length == 1)
+                if (e.key.length == 1){
+                  if (e.metaKey) return 
                   return updateLines(sel, ([p])=>[{...p, content:p.content.slice(0,x)+e.key+p.content.slice(x), selection:{start:x+1, end:x+1}}])(s)
+                }
               },
               pushhist,
               show,
