@@ -81,6 +81,7 @@ const insert = <T>(arr:T[], idx:number|undefined, ...elements:T[])=>{
 } 
 
 const toggleLink = (lnum:number, start:number, end:number):Update=>s0=>{
+  log('toggle link')
   const s = pushhist(resetSelection(s0))
   const target = s.p[lnum]
   const link = target.content.slice(start,end)
@@ -88,7 +89,7 @@ const toggleLink = (lnum:number, start:number, end:number):Update=>s0=>{
   const prev = s.p.slice(0,lnum)
   const rest = s.p.slice(lnum+1)
   const scope = rest.findIndex(p=>p.indent==target.indent)
-  return log(setStateVar('p',[...prev,
+  return setStateVar('p',[...prev,
     ... (scope <= 0)?[
       {...target, content:target.content.slice(0,end), el:undefined},
       ...buildPage(s.r, link.slice(1).split("."), target.indent+1).map(p=>render(p)),
@@ -98,7 +99,7 @@ const toggleLink = (lnum:number, start:number, end:number):Update=>s0=>{
       render({...target, content: target.content+rest[scope].content, el:undefined}),
       ...rest.slice(scope+1),
     ]
-  ].map(p=>render(p)))(s))
+  ].map(p=>render(p)))(s)
 }
 
 const cursor = ()=>htmlElement('div', '', 'cursor')
@@ -299,93 +300,51 @@ export const createView = (putDisplay:(el:HTMLElement)=>void) => {
           click: onclick,
           keydown: (e:KeyboardEvent)=>{
             
-            if (['Meta','Control', 'Alt', 'Shift'].includes(e.key)) return
+            if (e.key == 'Escape') return
+            e.preventDefault()
 
-            if (e.key.startsWith("Arrow")){
-              e.preventDefault()
-              const sel = getSelection(s)
-              if (sel == undefined) return
+            const sel = getSelection(s)
+            if (sel == undefined) return
 
-              const y = sel[0]
-              const l = s.p[y]
-              const x = l.selection!.start
+            const y = sel[0]
+            const l = s.p[y]
+            const x = l.selection!.start
 
-              const [ny,nx]:[number,number] = e.key == 'ArrowUp' ?
-                [e.altKey ? y-5 : e.metaKey ? firstPageLine(y, s)+1 : y-1, x]
-                : e.key == 'ArrowDown' ?
-                [e.altKey ? y+5 : e.metaKey ? lastPageLine(y, s) : y+1, x]
-                : e.key == 'ArrowLeft' ?
-                [y, Math.max(0,e.altKey ? x-5 : e.metaKey ? 0 : x-1)]
-                : e.key == 'ArrowRight' ?
-                [y, e.altKey ? x+5 : e.metaKey ? l.content.length : x+1]
-                : [y,x]
-              const [nny, nnx]= [clamp(ny,0,s.p.length-1), clamp(nx,0,l.content.length)]
-              if (s.p[nny].is_title) return
-              return show(setCursor(nny,Math.min(nx, l.content.length))(s))
-            }
-
-            if (e.key == 'Backspace'){
-              const sel = getSelection(s)
-              if (sel == undefined) return
-              const x = s.p[sel[0]].selection!.start
-              const newx = Math.max(0, x- (e.altKey ? 5 : e.metaKey ? 100 : 1))
-              return cc<State>(
-                s=>{
+            return cc<State>(
+              s=>{
+                if (e.key.startsWith('Arrow')){
+                  const [ny,nx]:[number,number] = e.key == 'ArrowUp' ?
+                    [e.altKey ? y-5 : e.metaKey ? firstPageLine(y, s)+1 : y-1, x]
+                    : e.key == 'ArrowDown' ?
+                    [e.altKey ? y+5 : e.metaKey ? lastPageLine(y, s) : y+1, x]
+                    : e.key == 'ArrowLeft' ?
+                    [y, Math.max(0,e.altKey ? x-5 : e.metaKey ? 0 : x-1)]
+                    : e.key == 'ArrowRight' ?
+                    [y, e.altKey ? x+5 : e.metaKey ? l.content.length : x+1]
+                    : [y,x]
+                  const [nny, nnx]= [clamp(ny,0,s.p.length-1), clamp(nx,0,l.content.length)]
+                  if (s.p[nny].is_title) return
+                  return setCursor(nny,nnx)(s)
+                }
+                if (e.key == 'Enter')
+                  return updateLines(sel[0], ([p])=>[{...p, content:p.content.slice(0,x), selection:undefined}, {...p, content:p.content.slice(x), selection:{start:0, end:0}}])(s)
+                if (e.key == 'Tab')
+                  return updateLines(sel, ([p])=>([{...p, content:p.content.slice(0,x)+'  '+p.content.slice(x), selection:{start:x+2, end:x+2}}]))(s)
+                if (e.key == 'Backspace'){
+                  const newx = Math.max(0, x- (e.altKey ? 5 : e.metaKey ? 100 : 1))
                   if (x == 0){
                     const prev = s.p[sel[0]-1]
                     if (prev == undefined || prev.is_title) return
                     return updateLines([sel[0]-1,sel[0]+1], ([p1,p2])=>[{...p1, content:p1.content+p2.content, selection:{start:p1.content.length, end:p1.content.length}}])(s)
                   }
-                  return updateLines(sel[0], ([p])=>[{...p, content:p.content.slice(0,newx)+p.content.slice(x), selection:{start:newx, end:newx}}])(s)
-                },
-                pushhist,
-                show,
-              )(s)
-
-            }
-            if (e.key == 'Tab') {
-              if (e.metaKey || e.shiftKey) return
-              e.preventDefault()
-              const sel = getSelection(s)
-              if (sel == undefined) return
-              return show(updateLines(sel[0] ?? 0, ([p])=>([{...p, content:p.content.slice(0,p.selection?.start ?? 0)+'  '+p.content.slice(p.selection?.start ?? 0) , selection:{start:(p.selection?.start ?? 0) + 2, end:(p.selection?.start ?? 0) + 2}}]))(s))
-            }
-
-            if (e.key == 'Enter'){
-              const sel = getSelection(s)
-              if (sel == undefined) return
-              const x = s.p[sel[0]].selection!.start
-              // const x = 
-              return cc<State>(
-                updateLines(sel[0], ([p])=>[{...p, content:p.content.slice(0,x), selection:undefined}, {...p, content:p.content.slice(x), selection:{start:0, end:0}}]),
-                pushhist,
-                show,
-              )(s)
-            }
-
-            if (e.key == 'Escape') return
-            if (e.key.length==1){ // letter
-            
-              // if (e.metaKey) {
-              //   if (e.key == 'z'){
-              //     log('undo')
-              //     if (s.hist.length) show({
-              //       ...last(s.hist),
-              //       hist: s.hist.slice(0,-1)
-              //     })
-              //   }
-              //   return
-              // }
-              const sel = getSelection(s)
-              if (sel == undefined) return
-              cc<State>(
-                pushhist,
-                updateLines(log("sel:",sel[0]), 
-                  ([p])=>([{...log(p), content:p.content.slice(0,p.selection?.start ?? 0)+e.key+p.content.slice(p.selection?.start ?? 0), selection:log('newp s',{start:(p.selection?.start ?? 0) + 1, end:(p.selection?.start ?? 0) + 1})}])),
-                show,
-              )(s)
-              return
-            }
+                  return updateLines(sel, ([p])=>[{...p, content:p.content.slice(0,newx)+p.content.slice(x), selection:{start:newx, end:newx}}])(s)
+                }
+                if (e.key.length == 1)
+                  return updateLines(sel, ([p])=>[{...p, content:p.content.slice(0,x)+e.key+p.content.slice(x), selection:{start:x+1, end:x+1}}])(s)
+              },
+              pushhist,
+              show,
+            )(s)
           },
         },
       }));
