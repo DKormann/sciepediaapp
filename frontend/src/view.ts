@@ -11,7 +11,9 @@ import {
   execAst,
   tokenize,
   highlighted,
+  ast,
   } from './funscript'
+import { highlighted_js, run_js } from './javascriptexec'
 
 
 type State = {
@@ -37,6 +39,7 @@ type Pelement = {
   is_title ?: true,
   el?:HTMLElement,
   selection?: {start:number, end:number},
+  colormap?:{cls:string}[],
 }
 
 type Rendered = Pelement & {
@@ -45,16 +48,26 @@ type Rendered = Pelement & {
 
 const islink = (s:string) => s.startsWith('#') && s.length > 1
 
+function codelint(code:string){
+  const toks = tokenize(code)
+  const ast = getAst(toks)
+  return [highlighted(toks, ast), ast] as [{cls:string}[][], ast]
+}
+
 const buildPage = (r:Root, path:Path, indent:number):Pelement[] => {
   const node = getData(r, path)
   const tit = node.path.join('.')
-  return [
+
+  const colormap = (last(path) == 'fs') ? codelint(node.Content)[0] as {cls:string}[][] : undefined
+
+  return[
     {content:tit,path,indent,is_title:true, children:[]},
-    ...node.Content.split('\n').map(c=>({content:c, indent, path, children:[], cursor:-1})),
+    ...node.Content.split('\n').map((c,i)=>({content:c, indent, path, children:[], cursor:-1, colormap:colormap?colormap[i]:undefined})),
     ...(last(path) == 'fs' ? 
       buildPage(r, path.concat(">>>"), indent+1)
       :[]),
   ]
+
 }
 
 const render = (par: Pelement, color?:{cls:string}[]):Rendered=>{
@@ -67,7 +80,7 @@ const render = (par: Pelement, color?:{cls:string}[]):Rendered=>{
           color != undefined
           ? par.content.split('').map((c,i)=>htmlElement('span', c, 'char'+color[i].cls,))
           : par.content.split(' ').map(w=>(' '+w).split('').map(c=>({c,w}))).flat().slice(1)
-            .map(({c,w},i)=>htmlElement('span', c, (islink(w)?'link':'char') +
+            .map(({c,w},i)=>htmlElement('span', c, ((par.colormap? log(par.colormap[i]?.cls ?? '') :islink(w)?'link':'char') ) +
               (sel && i>=sel[0] && i<sel[1] ? ".selected" : "")
           )),
           par.selection?.end, cursor()
@@ -124,16 +137,14 @@ const setLine = (line:number|[number, number], ...lines: Pelement[]):Update=>s=>
   )(s)
 }
 
-
 const runscript =(s:State, start:number)=> {
 
   const pg = seekPage(start, s)
   const code = getPageText(start, s)
   const codelines = code.split('\n')
-  const toks = tokenize(code)
+  const [colormap, ast] = codelint(code)
+
   try{
-    const ast = getAst(toks) 
-    const colormap = highlighted(toks, ast)
     
     const fcl = firstPageLine(start, s)
     const lol = lastPageLine(start, s)
@@ -154,20 +165,21 @@ const runscript =(s:State, start:number)=> {
           content:c,
           is_title:undefined,
         })
-      ))
+    ))
 
-      try{
-        const res = stringify(execAst(ast)).split("\n")
-        return displayres(res)(s1)  
-      }catch(e){
-        console.warn(e)
-        return displayres((e as Error).message.split("\n"))(s1)
-      }
+    try{
+      const res = stringify(execAst(ast)).split("\n")
+      return displayres(res)(s1)  
     }catch(e){
-      console.error(e)
-      return
+      console.warn(e)
+      return displayres((e as Error).message.split("\n"))(s1)
     }
+  }catch(e){
+    console.error(e)
+    return
+  }
 }
+
 
 const cc = <T> (...fs:((a:T)=>T|void)[]) => (a:T) => fs.reduce((r,f)=>f(r)??r,a)
 
@@ -227,7 +239,6 @@ const pushhist:Update = s=> (
 uuid(last(s.hist)).id
 ) ?setStateVar('hist', [...s.hist.slice(-10), s])(s):(log('no change'), s))
 
-
 {
   // unit tests
   const r = root(child('hello', 'hello #world #link'), child("link", "link content\nsecond line\n3rd line"))
@@ -271,7 +282,6 @@ uuid(last(s.hist)).id
 
 export const createView = (putDisplay:(el:HTMLElement)=>void) => {
 
-
   const getPos = (e:MouseEvent, s:State)=>{
     const p = findLine(s.p, e.y+window.scrollY)
     if (p === -1) return [undefined,undefined] as [undefined, undefined]
@@ -281,16 +291,11 @@ export const createView = (putDisplay:(el:HTMLElement)=>void) => {
 
   const show = (s:State)=>cc<State>(
 
-
     s=>{
-
       const [sel,_] = getSelection(s)
       if (sel == undefined || last(s.p[sel].path)!='fs') return
       return runscript(s, sel)
-
-
     },
-
 
     s=>{
       putDisplay(htmlElement('div', '', 'root',{
