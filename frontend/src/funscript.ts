@@ -1,3 +1,4 @@
+import { htmlElement } from "./_html"
 import { assertEq, assertErr, last, log, stringify, Res, Ok, Err, ok, err, assert } from "./helpers"
 
 type code = {
@@ -231,8 +232,10 @@ export const execAst = (parsed:ast):any => {
 
   const compt = build(parsed)
   try{
-    const FN = Function("return "+compt) 
-    return FN()
+    const FN = Function('htmlElement', "return "+compt) 
+    htmlElement
+    const pro = 22;
+    return FN(htmlElement)
   }catch(e){
     return (e as Error).message
   }

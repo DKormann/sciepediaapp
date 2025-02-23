@@ -334,6 +334,8 @@ export const createView = (putDisplay:(el:HTMLElement)=>void) => {
               show,
             )(s)
             
+
+
           },
           mousemove: (e:MouseEvent)=>{
             if (!s.mousestart) return
@@ -344,6 +346,8 @@ export const createView = (putDisplay:(el:HTMLElement)=>void) => {
           keydown: (e:KeyboardEvent)=>{
 
             if (['Meta', 'Alt', 'Control', 'Shift'].includes(e.key)) return
+
+            if (e.key.startsWith('Arrow')) e.preventDefault()
             if (e.key == 'Escape') return
 
             const sel = getSelection(s)
