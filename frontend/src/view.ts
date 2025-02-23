@@ -196,13 +196,12 @@ const setSelection = ([[sl, sc], [el, ec]]:[[number,number],[number,number]]):Up
   )
 }
 
-const getSelection = (s:State):[number,number] | undefined =>{
+const getSelection = (s:State):[number,number]|[undefined,undefined] =>{
   const start = s.p.findIndex(p=>p.selection)
-  if (start == -1) return undefined
+  if (start == -1) return [undefined, undefined]
   const rng = s.p.slice(start).findIndex(p=>!p.selection)
   return [start, rng==-1?s.p.length: rng+start]
 }
-
 
 function findLine (p:Rendered[],y:number):number 
 {return p.findIndex(({el})=>el.clientHeight + el.offsetTop > y)}
@@ -308,6 +307,7 @@ export const createView = (putDisplay:(el:HTMLElement)=>void) => {
 
           mousedown: (e:MouseEvent)=>{
             const [p,c] = getPos(e, s)
+            if (e.shiftKey) return
             cc<State>(
               setStateVar('mousestart', log(p?{p,c}:undefined)),
               s=>p?setSelection([[p,c],[p,c]])(s):s,
@@ -319,7 +319,13 @@ export const createView = (putDisplay:(el:HTMLElement)=>void) => {
             return cc<State>(
               s=>{
                 const [p,c] = getPos(e, s)
-                if (p == undefined) return s
+                if (p == undefined) return
+                if (e.shiftKey){
+                  const [st,en] = getSelection(s)
+                  if (st == undefined) return
+                  return setSelection([[st, s.p[st].selection!.start],[p,c]])(s)
+                }
+                if (!s.mousestart) return
                 if (comp(s.mousestart, {p,c})){
                   const [a,b] = seekWord(s.p[p],c)
                   if (islink(log(s.p[p].content.slice(a,b)))){
@@ -347,18 +353,7 @@ export const createView = (putDisplay:(el:HTMLElement)=>void) => {
 
             const sel = getSelection(s)
 
-            if (sel == undefined) return
-
-
-            const putText = (t:string):Update => updateLines(sel, (ps=>{
-              const b1 = ps[0]
-              const b2 = last(ps)
-
-              const pre = b1.content.slice(0,Math.min(b1.selection!.start, b1.selection!.end))
-              const end = b2.content.slice(Math.max(b2.selection!.start, b2.selection!.end))
-              const newlines = (pre+t).split('\n')
-              return newlines.map((content,i)=>(i==newlines.length-1?{...b1, content:content+end, selection:{start:content.length, end:content.length}}:{...b1, content:content, selection:undefined}))
-            }))
+            if (sel[0] == undefined) return
 
             return cc<State>(
 
@@ -366,7 +361,14 @@ export const createView = (putDisplay:(el:HTMLElement)=>void) => {
                 if (["Tab", "Enter", "Backspace"].includes(e.key) || e.key.length == 1){
                   if (e.metaKey) return 
                   return cc<State>(
-                    putText(e.key.length==1? e.key :e.key=="Tab"?"  ":e.key=="Enter"?"\n":""),
+                    updateLines(sel, (ps=>{
+                      const b1 = ps[0]
+                      const b2 = last(ps)
+                      const end = b2.content.slice(Math.max(b2.selection!.start, b2.selection!.end))
+                      const newlines = (b1.content.slice(0,Math.min(b1.selection!.start, b1.selection!.end)) +
+                      (e.key.length == 1? e.key : e.key == 'Tab'? '  ' : e.key == 'Enter'? '\n' : '')).split('\n')
+                      return newlines.map((content,i)=>(i==newlines.length-1?{...b1, content:content+end, selection:{start:content.length, end:content.length}}:{...b1, content:content, selection:undefined}))
+                    })),
                     pushhist,
                   )(s)
                 }
@@ -374,7 +376,7 @@ export const createView = (putDisplay:(el:HTMLElement)=>void) => {
               s=>{
 
                 const sel = getSelection(s)
-                if (sel == undefined) return
+                if (sel[0] == undefined) return
     
                 const y = sel[0]
                 const l = s.p[y]
