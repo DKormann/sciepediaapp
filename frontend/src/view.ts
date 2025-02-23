@@ -36,7 +36,6 @@ type Pelement = {
   path:Path,
   is_title ?: true,
   el?:HTMLElement,
-  // cursor: number,
   selection?: {start:number, end:number},
 }
 
@@ -53,8 +52,8 @@ const buildPage = (r:Root, path:Path, indent:number):Pelement[] => {
     {content:tit,path,indent,is_title:true, children:[]},
     ...node.Content.split('\n').map(c=>({content:c, indent, path, children:[], cursor:-1})),
     ...(last(path) == 'fs' ? 
-    buildPage(r, path.concat(">>>"), indent+1)
-    :[]),
+      buildPage(r, path.concat(">>>"), indent+1)
+      :[]),
   ]
 }
 
@@ -88,20 +87,15 @@ const toggleLink = (lnum:number, start:number, end:number):Update=>s0=>{
   const target = s.p[lnum]
   const link = target.content.slice(start,end)
   assertEq(islink(link), true, 'open non link:'+link)
-  const prev = s.p.slice(0,lnum)
   const rest = s.p.slice(lnum+1)
   const scope = rest.findIndex(p=>p.indent==target.indent)
-  return setStateVar('p',[...prev,
-    ... (scope <= 0)?[
-      {...target, content:target.content.slice(0,end), el:undefined},
-      ...buildPage(s.r, link.slice(1).split("."), target.indent+1).map(p=>render(p)),
-      {...target, content:target.content.slice(end), el:undefined},
-      ...rest
-    ]:[
-      render({...target, content: target.content+rest[scope].content, el:undefined}),
-      ...rest.slice(scope+1),
-    ]
-  ].map(p=>render(p)))(s)
+
+  return (scope <= 0)
+  ? setLine([lnum,lnum+1], {...target, content:target.content.slice(0,end), el:undefined},
+    ...buildPage(s.r, link.slice(1).split("."), target.indent+1).map(p=>render(p)),
+    {...target, content:target.content.slice(end), el:undefined})(s)
+  : setLine([lnum,lnum+scope+2], render({...target, content: target.content+rest[scope].content, el:undefined}),)(s)
+
 }
 
 const cursor = ()=>htmlElement('div', '', 'cursor')
@@ -131,50 +125,49 @@ const setLine = (line:number|[number, number], ...lines: Pelement[]):Update=>s=>
 }
 
 
-// const runscript =(s:State, start:number)=> {
+const runscript =(s:State, start:number)=> {
 
-//   const pg = seekPage(start, s)
-//   const code = getPageText(start, s)
-//   const codelines = code.split('\n')
-//   const toks = tokenize(code)
-//   try{
-//     const ast = getAst(toks) 
-//     const colormap = highlighted(toks, ast)
+  const pg = seekPage(start, s)
+  const code = getPageText(start, s)
+  const codelines = code.split('\n')
+  const toks = tokenize(code)
+  try{
+    const ast = getAst(toks) 
+    const colormap = highlighted(toks, ast)
     
-//     const fcl = firstPageLine(start, s)
-//     const lol = lastPageLine(start, s)
-//     const lcl = firstPageLine(lol, s)
+    const fcl = firstPageLine(start, s)
+    const lol = lastPageLine(start, s)
+    const lcl = firstPageLine(lol, s)
     
-//     const s1 = 
-//     setStateVar('p',[
-//       ...s.p.slice(0,fcl+1),
-//       ...colormap.map((l,i)=>render({...pg[i+1], content:codelines[i], is_title:undefined, }, l)),
-//       ...s.p.slice(lcl)
-//     ])(s);
+    const s1 = 
+    setStateVar('p',[
+      ...s.p.slice(0,fcl+1),
+      ...colormap.map((l,i)=>render({...pg[i+1], content:codelines[i], is_title:undefined, }, l)),
+      ...s.p.slice(lcl)
+    ])(s);
     
-//     const displayres = (lns:string[])=>
-//       setLine([firstPageLine(lol, s1)+1,lol+1],
-//       ...lns.map(
-//         c=>render({
-//           ...s1.p[lol],
-//           content:c,
-//           // cursor:-1,
-//           is_title:undefined,
-//         })
-//       ))
+    const displayres = (lns:string[])=>
+      setLine([firstPageLine(lol, s1)+1,lol+1],
+      ...lns.map(
+        c=>render({
+          ...s1.p[lol],
+          content:c,
+          is_title:undefined,
+        })
+      ))
 
-//       try{
-//         const res = stringify(execAst(ast)).split("\n")
-//         return displayres(res)(s1)  
-//       }catch(e){
-//         console.warn(e)
-//         return displayres((e as Error).message.split("\n"))(s1)
-//       }
-//     }catch(e){
-//       console.error(e)
-//       return
-//     }
-// }
+      try{
+        const res = stringify(execAst(ast)).split("\n")
+        return displayres(res)(s1)  
+      }catch(e){
+        console.warn(e)
+        return displayres((e as Error).message.split("\n"))(s1)
+      }
+    }catch(e){
+      console.error(e)
+      return
+    }
+}
 
 const cc = <T> (...fs:((a:T)=>T|void)[]) => (a:T) => fs.reduce((r,f)=>f(r)??r,a)
 
@@ -290,13 +283,12 @@ export const createView = (putDisplay:(el:HTMLElement)=>void) => {
 
 
     s=>{
-      // log(s.selection)
-      // if (s.selection) {
-      //   const l = getLines([sel[0], s.selection.end])(s)[0]
-      //   if (last(l.path) == "fs"){
-      //     return runscript(s, sel[0])
-      //   }
-      // }
+
+      const [sel,_] = getSelection(s)
+      if (sel == undefined || last(s.p[sel].path)!='fs') return
+      return runscript(s, sel)
+
+
     },
 
 
@@ -338,21 +330,18 @@ export const createView = (putDisplay:(el:HTMLElement)=>void) => {
             )(s)
             
           },
-
           mousemove: (e:MouseEvent)=>{
             if (!s.mousestart) return
             const [p,c] = getPos(e, s)
             if (p == undefined) return
             show(setSelection([[s.mousestart!.p, s.mousestart!.c],[p,c]])(s))
           },
-
           keydown: (e:KeyboardEvent)=>{
 
             if (['Meta', 'Alt', 'Control', 'Shift'].includes(e.key)) return
             if (e.key == 'Escape') return
 
             const sel = getSelection(s)
-
             if (sel[0] == undefined) return
 
             return cc<State>(
