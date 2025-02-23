@@ -1,6 +1,6 @@
 
 body{
-  --background: #151411;
+  --background: #121111;
   --color: #f5f5f5;
   --highlight: #402157;
   --active: #4687ff;
@@ -8,10 +8,10 @@ body{
   --red: #ff0000;
   --green: #007bff;
 
-  --code1: #8deeff;
-  --code2: #23ff6c;
-  --code3: #ffa348;
-  --code4: #e8f806;
+  --code1: #65c9ff;
+  --code2: #ffa348;
+  --code3: #e8f806;
+  --code4: #23ff6c;
   --code5: #ae81ff;
 
 
@@ -25,6 +25,8 @@ body{
   margin: 0;
   padding-top: 2em;
 }
+
+
 
 /* light mode */
 @media (prefers-color-scheme: light) {

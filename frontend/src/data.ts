@@ -13,6 +13,8 @@ export type Child = {
   children:Child[]
 }
 
+const s = "sdlkfj"
+
 type ND = Root|Child
 type Step = (root:Root)=>Root|void
 const chain = (root:Root, ...steps:Step[]):Root => steps.reduce((state, step) => step(state) || state, root) 
