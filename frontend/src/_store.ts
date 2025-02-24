@@ -15,7 +15,7 @@ class PersistantStore {
   }
 
   public get = (key:string):any|null =>{
-    const val:string = this._is_main? localStorage.getItem('sciepediaapp_'+key) || 'null': this._side_store?.get(key) || 'null'
+    const val:string = this._is_main? localStorage.getItem('sciepedia'+key) || 'null': this._side_store?.get(key) || 'null'
     if (!this._is_main && !this._side_store) throw new Error('side store not initialized')
     return JSON.parse(val)
   }
@@ -23,7 +23,7 @@ class PersistantStore {
   public set = (key:string, value:any):PersistantStore =>{
     const val = JSON.stringify(value, (k,v)=>k=='id'?undefined:v)
     if (this._is_main){
-      localStorage.setItem('sciepediaapp_'+key, val)
+      localStorage.setItem('sciepedia'+key, val)
       this._is_main = false
       this._side_store = new Map()
       return new PersistantStore(true, null)

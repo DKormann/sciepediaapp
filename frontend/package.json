@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build --force",
+    "build:gh-pages": "BUILD_TARGET=gh-pages vite build --force",
     "preview": "vite preview",
     "test": "vite test"
   },

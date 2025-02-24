@@ -1,15 +1,31 @@
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
 
-export default defineConfig({
-  base: '/sciepediaapp/', // Set base path to '/path/' for all assets
-  build: {
-    rollupOptions: {
-      input: 'index.html', // Main entry point (your HTML file)
-      output: {
-        entryFileNames: 'assets/[name].js', // JavaScript output
-        chunkFileNames: 'assets/[name].js', // Chunk output
-        assetFileNames: 'assets/[name].[ext]', // Asset files like CSS, images
+export default defineConfig(({ command, mode }) => {
+
+  // Load environment variables
+  const env = loadEnv(mode, process.cwd(), '');
+
+  // Determine base path
+  const base = command === 'build' && env.BUILD_TARGET === 'gh-pages'
+    ? '/sciepediaapp/'
+    : '/';
+
+  return {
+    base,
+    build: {
+      outDir: '../dist', // Wails looks for assets here by default
+      emptyOutDir: true,
+      rollupOptions: {
+        input: '/index.html',
+        output: {
+          entryFileNames: 'assets/[name].[hash].js',
+          chunkFileNames: 'assets/[name].[hash].js',
+          assetFileNames: 'assets/[name].[hash].[ext]'
+        }
       }
+    },
+    server: {
+      origin: 'http://localhost:5173'
     }
   }
 })

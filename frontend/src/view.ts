@@ -80,7 +80,7 @@ const render = (par: Pelement, color?:{cls:string}[]):Rendered=>{
           color != undefined
           ? par.content.split('').map((c,i)=>htmlElement('span', c, 'char'+color[i].cls,))
           : par.content.split(' ').map(w=>(' '+w).split('').map(c=>({c,w}))).flat().slice(1)
-            .map(({c,w},i)=>htmlElement('span', c, ((par.colormap? log(par.colormap[i]?.cls ?? '') :islink(w)?'link':'char') ) +
+            .map(({c,w},i)=>htmlElement('span', c, ((par.colormap? (par.colormap[i]?.cls ?? '') :islink(w)?'link':'char') ) +
               (sel && i>=sel[0] && i<sel[1] ? ".selected" : "")
           )),
           par.selection?.end, cursor()
@@ -306,7 +306,7 @@ export const createView = (putDisplay:(el:HTMLElement)=>void) => {
             const [p,c] = getPos(e, s)
             if (e.shiftKey) return
             cc<State>(
-              setStateVar('mousestart', log(p?{p,c}:undefined)),
+              setStateVar('mousestart', p?{p,c}:undefined),
               s=>p?setSelection([[p,c],[p,c]])(s):s,
               show,
             )(s)
@@ -325,7 +325,7 @@ export const createView = (putDisplay:(el:HTMLElement)=>void) => {
                 if (!s.mousestart) return
                 if (comp(s.mousestart, {p,c})){
                   const [a,b] = seekWord(s.p[p],c)
-                  if (islink(log(s.p[p].content.slice(a,b)))){
+                  if (islink(s.p[p].content.slice(a,b))){
                     return toggleLink(p,a,b)(s)
                   }
                 }
