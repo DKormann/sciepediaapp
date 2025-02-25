@@ -14,6 +14,7 @@ import {
   ast,
   } from './funscript'
 import { highlighted_js, run_js } from './javascriptexec'
+import { Greet, GetFile, OpenFileDialog } from './wailsjs/go/main/App'
 
 
 type State = {
@@ -53,6 +54,7 @@ function codelint(code:string){
   const ast = getAst(toks)
   return [highlighted(toks, ast), ast] as [{cls:string}[][], ast]
 }
+
 
 const buildPage = (r:Root, path:Path, indent:number):Pelement[] => {
   const node = getData(r, path)
@@ -120,7 +122,9 @@ const updateLines = (lnum:number|[number,number], f:(p:Pelement[])=>Pelement[]):
   setLine(lnum, ...f(getLines(lnum)(s)))(s)
 
 const setLine = (line:number|[number, number], ...lines: Pelement[]):Update=>s=>{
+  
   const [start,end] = ((typeof line == 'number')?[line,line+1]:line).sort((a,b)=>a-b)
+
   assert(end>=start, `end>=start ${end}>=${start}`);
   const targetpath = (lines.length? lines[0] : s.p[start]).path
   const selected_lines = lines.filter(p=>p.selection)
@@ -139,10 +143,16 @@ const setLine = (line:number|[number, number], ...lines: Pelement[]):Update=>s=>
 
 const runscript =(s:State, start:number)=> {
 
+  // log("runscript", start)
+
+
+
   const pg = seekPage(start, s)
   const code = getPageText(start, s)
   const codelines = code.split('\n')
   const [colormap, ast] = codelint(code)
+
+  // log(colormap,ast)
 
   try{
     
@@ -156,7 +166,7 @@ const runscript =(s:State, start:number)=> {
       ...colormap.map((l,i)=>render({...pg[i+1], content:codelines[i], is_title:undefined, }, l)),
       ...s.p.slice(lcl)
     ])(s);
-    
+
     const displayres = (lns:string[])=>
       setLine([firstPageLine(lol, s1)+1,lol+1],
       ...lns.map(
@@ -168,10 +178,11 @@ const runscript =(s:State, start:number)=> {
     ))
 
     try{
-      const res = stringify(execAst(ast)).split("\n")
-      return displayres(res)(s1)  
+      const ret = execAst(ast)
+      if (ret.__repr__ != undefined) return displayres([ret.__repr__()]) (s1)
+      const res = stringify(ret).split("\n")
+      return displayres(res)(s1)
     }catch(e){
-      console.warn(e)
       return displayres((e as Error).message.split("\n"))(s1)
     }
   }catch(e){
@@ -280,6 +291,14 @@ uuid(last(s.hist)).id
 
 }
 
+
+
+try{
+  Greet("alice").then(console.log)
+  GetFile("script.fs").then(console.log)
+
+}catch{}
+
 export const createView = (putDisplay:(el:HTMLElement)=>void) => {
 
   const getPos = (e:MouseEvent, s:State)=>{
@@ -347,7 +366,7 @@ export const createView = (putDisplay:(el:HTMLElement)=>void) => {
 
             if (['Meta', 'Alt', 'Control', 'Shift'].includes(e.key)) return
 
-            if (e.key.startsWith('Arrow')) e.preventDefault()
+            if (e.key.startsWith('Arrow')||!e.metaKey) e.preventDefault()
             if (e.key == 'Escape') return
 
             const sel = getSelection(s)
@@ -356,6 +375,16 @@ export const createView = (putDisplay:(el:HTMLElement)=>void) => {
             return cc<State>(
 
               s=>{
+
+                if (e.key.length==1 && (e.metaKey || e.ctrlKey)){
+                  const actioncode = (e.metaKey ? 'Meta' : '') + (e.ctrlKey ? 'Ctrl' : '') + e.key
+
+                  if (actioncode == 'Metao'){
+                    OpenFileDialog().then(console.log)
+                  }
+                  e.preventDefault()
+                  return
+                }
                 if (["Tab", "Enter", "Backspace"].includes(e.key) || e.key.length == 1){
                   if (e.metaKey) return 
                   return cc<State>(
@@ -394,7 +423,7 @@ export const createView = (putDisplay:(el:HTMLElement)=>void) => {
                   if (s.p[nny].is_title) return
                   return setCursor(nny,nnx)(s)
                 }
-                if (e.key == 'Escape') e.preventDefault()
+
 
                 if (e.key == 'Backspace'){
                   const newx = Math.max(0, x- (e.altKey ? 5 : e.metaKey ? 100 : 1))

@@ -1,14 +1,14 @@
 import { htmlElement } from "./_html"
 import { assertEq, assertErr, last, log, stringify, Res, Ok, Err, ok, err, assert } from "./helpers"
 
+
 type code = {
   type: string,
-  value: string,
   start: number,
   end: number,
 }
 
-export type token = code & {type:"number" | "string" | "boolean" | "null" | "identifier" | "symbol" | "typo" | "whitespace" | "comment"}
+export type token = code & {value:string, type:"number" | "string" | "boolean" | "null" | "identifier" | "symbol" | "typo" | "whitespace" | "comment"}
 
 const symbols = ["(", ")", "{", "}", "[", "]", "=>", ",", ":", "?", "=>", "!", "&&", "||", "+", "-", "*", "/", "%", "<", ">", "<=", ">=", "==", "!=", "=", ";", "...", ".", "//"]
 
@@ -38,7 +38,7 @@ export const tokenize = (code:string, i:number=0, tid = 0):token[] =>{
 
 export type ast = nullary | unary | binary | ternary | nary
 
-type nullary = code & {type:"number" | "string" | "boolean" | "null" | "identifier" | "typo", children:[]}
+type nullary = code & {type:"number" | "string" | "boolean" | "null" | "identifier" | "typo", children:[], value:string}
 type unary = code & {type:"!" | "neg" | "..."} & {children: [ast]}
 type binary = code & {type:"+" | "-" | "*" | "/" | "%" | "<" | ">" | "<=" | ">=" | "==" | "!=" | "&&" | "||" | "app" | "=>" | "index" | "[]" | ":"} & {children: [ast, ast]}
 type ternary = code & {type:"?:" | "=;"} & {children: [ast, ast, ast]}
@@ -46,7 +46,9 @@ type nary = code & {type:"{}" | "[]" | "()"} & {children: ast[]}
 
 const ternaryops = ["?:", "=;"]
 const symbolpairs = [["(", ")"], ["{", "}"], ["[", "]"], ["?", ":"], ["=", ";"]]
-const binaryops = ["+", "-", "*", "/", "%", "<", ">", "<=", ">=", "==", "!=", "&&", "||", "app", "=>", "index"]
+const binaryops = ["+", "-", "*", "/", "%", "<", ">", "<=", ">=", "==", "!=", "&&", "||", "app", "=>", "index",
+  //  ":"
+  ]
 const unaryops = ["!", "neg", "..."]
 
 
@@ -69,12 +71,12 @@ const parse = (tokens:token[]): ast => {
 
   const parseKV = (idx:number):ast =>{
     const k = parseexpr(idx)
-    if (k.type == "typo") return k
+    if (k.type == 'typo') return k
     const colon = tokens[nexttok(k)]
     if (colon == undefined) return {...k, type:"typo", value:"expected : or } after {", children:[]}
     if (k.type == "...") return k
     const v = (colon.value == ":") ? parseexpr(nexttok(colon)): k
-    return {type:":", value:"", start:k.start, end:v.end, children:[ k.type=="identifier"? iden2string(k):k, v]}
+    return {type:":", start:k.start, end:v.end, children:[ k.type=="identifier"? iden2string(k):k, v]}
   }
 
   const parsegroup = (opener:token , idx: number):nary|nullary => {
@@ -83,11 +85,12 @@ const parse = (tokens:token[]): ast => {
       const type = "?=".includes(opener.value)? "()" : opener.value + closer  as (nary)["type"]
     const tok = tokens[idx]
     if (tok == undefined) return {type: "typo", value: `end of input. expected ${closer} because of ${opener.value}`, start: opener.start, end: last(tokens).end, children:[]}
-    if (tok.value == closer) return {type, value:"", children:[], start: opener.start, end: tok.end}
+    if (tok.value == closer) return {type, children:[], start: opener.start, end: tok.end}
     if (tok.value == ",") return parsegroup(opener, nexttok(tok))
     if ("])};:".includes(tok.value)) return {type: "typo", value: `cant parse ${type}. expected ${closer} because of ${opener.value}`, start: tok.start, end: tok.end, children:[]}
 
     const child = type == "{}" ? parseKV (idx) : parseexpr(idx)
+    // const child = parseexpr(idx)
     if (child.type == "typo") return child
     const rest = parsegroup(opener, nexttok(child))
 
@@ -113,7 +116,6 @@ const parse = (tokens:token[]): ast => {
         const newNode = {
           ...grp,
           type:op,
-          value:"",
           start:first.start,
           end:grp.end,
           children:[first, nextop.value == "[" ? grp.children[0] : grp]} as binary
@@ -127,7 +129,10 @@ const parse = (tokens:token[]): ast => {
         (nextop.value as ast['type'])
 
       if (binaryops.includes(op)){
+      
         const second = parseindivisible(nexttok(nextop))
+
+        // if (op == ":") log({first, second})
         const newNode = astnode(op, [first, nextop.value == "." ? iden2string(second as nullary):second])
         return parsecontinue(newNode)
       }
@@ -167,19 +172,26 @@ const parse = (tokens:token[]): ast => {
   return res
 }
 
+
+
 const build = (ast:ast):string =>{
+
   const errs = flat_errors(ast)
   if (errs.length > 0) throw new Error(errs.map(e=>e.value).join('\n'))
   const sfill = (template:string, i=0):string =>
     i == ast.children.length? template:
     sfill(template.replace("{}", build(ast.children[i])), i+1)
   return ast.type == "number" || ast.type == "boolean" || ast.type == "null" || ast.type == "identifier" || ast.type == "string" ? ast.value:
-  "({[".includes(ast.type[0]) ? `${ast.type[0]}${ast.children.map(build).join(",")}${ast.type[1]}`:
+  "({[".includes(ast.type[0]) ? `${ast.type[0]}${ast.children.map(
+    ast.type == "{}" ? (e)=> e.type == ":" ? e.children.map(build).join(":") : (e.type != "..." ? "..." : "" )+ build(e):
+    build
+  
+  ).join(",")}${ast.type[1]}`:
   (ast.type == "app")? sfill("({}{})"):
   (ast.type == "index")? sfill("({}[{}])"):
   (ast.type == 'neg')? `-${build(ast.children[0])}`:
   (ast.type == '=>')? sfill("({}=>({}))"):
-  ast.type == ":" ? sfill("{}:{}"):
+  ast.type == ":" ? sfill("{{}:{}}"):
   ast.children.length == 2 ? sfill(`({}${ast.type}{})`, 0):
   ast.children.length == 1 ? `${ast.type}${build(ast.children[0])}`:
   ast.type == "=;" ? sfill("(()=>{const {} = {};\nreturn {}})()") :
@@ -196,6 +208,7 @@ const operator_weight = (op: ast['type']): number =>
   op === "+" || op === "-" ? 11 :
   op === "<" || op === ">" || op === "<=" || op === ">=" || op === "==" || op === "!=" ? 10 :
   op === "&&" || op === "||" ? 9 :
+  op === ":" ? 9 :
   op === "?:" || op === "=;" ? 8 :
   op === "=>" ? 7 :
   -1;
@@ -203,18 +216,25 @@ const operator_weight = (op: ast['type']): number =>
 
 const rearange = (nod:ast):ast => {
   assert(nod != undefined, "rearange error")
-  
+
   //@ts-expect-error
-  if (nod.children.includes(undefined)) log(nod.children)
+  if (nod.children.includes(undefined)) throw new Error("rearange error "+ stringify(nod))
   const node = {...nod, children:nod.children.map(rearange)} as ast
 
-  if (binaryops.includes(node.type)){
+
+  if (binaryops.concat(":").includes(node.type)){
     const [fst, snd] = node.children
     if (binaryops.includes(fst.type) && operator_weight(fst.type) < operator_weight(node.type)){
       return rearange({...fst, children:[(fst .children[0]), {...node, children:[fst.children[1], snd]}]} as ast)
     }
+    
+    log("rearranging", fst.type, node.type)
+    if (ternaryops.includes(fst.type) && log(operator_weight(fst.type) < operator_weight(node.type))){
+      return rearange({...fst, children:[fst.children[0], fst.children[1], {...node, children:[fst.children[2], snd]}]} as ast)
+    }
   }
   if (ternaryops.includes(node.type)){
+
     assertEq(node.children.length, 3, "rearange error" +stringify(node))
     const [fst, snd, trd] = node.children
     if (binaryops.includes(fst.type) && operator_weight(fst.type) < operator_weight(node.type)){
@@ -232,12 +252,10 @@ export const execAst = (parsed:ast):any => {
 
   const compt = build(parsed)
   try{
-    const FN = Function('htmlElement', "return "+compt) 
-    htmlElement
-    const pro = 22;
+    const FN = Function('htmlElement', "return "+compt)
     return FN(htmlElement)
   }catch(e){
-    return (e as Error).message
+    return "runtime error in:" + compt + "\n" + (e as Error).message
   }
 }
 
@@ -263,13 +281,26 @@ export const highlighted = (toks: token[], ast:ast):{cls:string}[][] =>{
     "?:=;".includes(tok.value) ? "code3" :
     tok.type == "symbol" ? "code4" :
     "")}]))
-  const lines =  chs.slice(1).reduce((p, c)=>[...p.slice(0,-1), [...last(p), ...c[0]], ...c.slice(1)], chs[0])
+  const lines =  chs.slice(1).reduce((p, c)=>[...p.slice(0,-1), [...last(p), ...c[0]], ...c.slice(1)], chs[0]??[[]])
   
-  return lines.map(l=>l.map(c=>c.code.split('').map(ch=>({cls:c.cls}))).flat())
+  return log(lines).map(l=>l.map(c=>c.code.split('').map(ch=>({cls:c.cls}))).flat())
 }
 
 
+// const code = "{x=2;x:x}"
+// const tokens = tokenize(code)
+// log(tokens)
+// const ast = parse(tokens)
+// log(ast)
+// const rea = rearange(ast)
+// log(rea)
+
+// log(build(rea))
+
+
 {
+
+  log("testing")
   assertEq(tokenize("1"), [{type:"number", value:"1", start:0, end:1}])
   assertEq(tokenize("1 +  1"), [{type:"number", value:"1", start:0, end:1}, {type:"whitespace", value:" ", start:1, end:2}, {type:"symbol", value:"+", start:2, end:3}, {type:"whitespace", value:"  ", start:3, end:5}, {type:"number", value:"1", start:5, end:6}])
   assertEq(tokenize('{"gello" + ]22', 0), [{type:"symbol", value:"{", start:0, end:1}, {type:"string", value:"\"gello\"", start:1, end:8}, {type:"whitespace", value:" ", start:8, end:9}, {type:"symbol", value:"+", start:9, end:10}, {type:"whitespace", value:" ", start:10, end:11}, {type:"symbol", value:"]", start:11, end:12}, {type:"number", value:"22", start:12, end:14}])
@@ -372,7 +403,10 @@ export const highlighted = (toks: token[], ast:ast):{cls:string}[][] =>{
   testCompile('"hello " + "world"', '("hello "+"world")')
 
   testCompile("f(a, b)", '(f(a,b))')
-
+  
+  testCompile("{x:x=2;x}", '{"x":(()=>{const x = 2;\nreturn x})()}')
+  testCompile("{x=2;x:x}", '{...(()=>{const x = 2;\nreturn {x:x}})()}')
+  
   const testRun = (code:string, expected:any)=>
     assertEq(runfun(code), expected, " in running "+ code)
 
@@ -385,6 +419,8 @@ export const highlighted = (toks: token[], ast:ast):{cls:string}[][] =>{
   testRun('x="hello";x+x', "hellohello")
 
   testRun("[a,b] = [1,2]; a", 1)
+
+  testRun("{x=2;x:x}", {x:2})
 
   /*
   assertCompileErr('"abc', `parse error, expected: "`)

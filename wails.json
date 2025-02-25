@@ -8,6 +8,8 @@
   "frontend:build": "npm run build",
   "frontend:dev:watcher": "npm run dev",
   "frontend:dev:serverUrl": "http://localhost:5173",
+  "frontend:dev:websocketUrl": "ws://localhost:34115",
+  "devserverurl": "http://localhost:34115",
   "author": {
     "name": "DKormann",
     "email": "dominikormann@outlook.com"
