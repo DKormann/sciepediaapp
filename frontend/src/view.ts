@@ -154,8 +154,6 @@ const runscript =(s:State, start:number)=> {
   const codelines = code.split('\n')
   const [colormap, ast] = codelint(code)
 
-  // log(colormap,ast)
-
   try{
     
     const fcl = firstPageLine(start, s)
@@ -396,22 +394,21 @@ export const createView = (putDisplay:(el:HTMLElement)=>void) => {
 
               if (actioncode == 'Metac'){
                 const [st,en] = log(getSelection(s))
-                if (st == undefined) return s
+                if (st == undefined) return
                 navigator.clipboard.writeText(s.p.slice(st,en)
                 .map(p=> p.selection?p.content.slice(...log([p.selection.start, p.selection.end].sort())):'').join('\n'))
               }
               if (actioncode == 'Metav')
                 return show(insertText(await navigator.clipboard.readText())(s))
-
-              e.preventDefault()
-              if (e.key != 'Metav')  return
             }
             
             return cc<State>(
               s=>{
                 if (["Tab", "Enter", "Backspace"].includes(e.key) || e.key.length == 1){
                   if (e.metaKey) return 
-                  return insertText(e.key.length == 1? e.key: e.key == 'Tab'? '  ' : e.key == 'Enter'? '\n' : '')(s)
+
+                  return insertText(e.key.length == 1? e.key: e.key == 'Tab'? '  ' : e.key == 'Enter'? 
+                    '\n'+ s.p[sel[1]-1].content.match(/^\s*/)?.[0] ?? '' : '')(s)
                 }
               },
               s=>{
