@@ -179,7 +179,8 @@ const runscript =(s:State, start:number)=> {
 
     try{
       const ret = execAst(ast)
-      if (ret.__repr__ != undefined) return displayres([ret.__repr__()]) (s1)
+      
+      if (ret != undefined && ret.__repr__ != undefined) return displayres([ret.__repr__()]) (s1)
       const res = stringify(ret).split("\n")
       return displayres(res)(s1)
     }catch(e){
