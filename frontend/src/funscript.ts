@@ -233,7 +233,8 @@ const rearange = (nod:ast):ast => {
   if (binaryops.concat(":").includes(node.type)){
     const [fst, snd] = node.children
 
-    if ((binaryops.includes(fst.type) || ternaryops.includes(fst.type) || unaryops.includes(fst.type)) && operator_weight(fst.type) < operator_weight(node.type)){
+    if ((binaryops.includes(fst.type) || ternaryops.includes(fst.type) || unaryops.includes(fst.type))
+      && (operator_weight(fst.type) < operator_weight(node.type) || fst.type == "=>" && node.type == "=>")){
       return rearange({...fst, children:[...fst.children.slice(0, -1), {...node, children:[fst.children.slice(-1)[0], snd]}]} as ast)
     }
   }
@@ -292,7 +293,9 @@ export const highlighted = (toks: token[], ast:ast):{cls:string}[][] =>{
 
 
 
-// log(rearange(log(parse(tokenize("[...fn(2)]")))))
+log(rearange(log(parse(tokenize("e={};22")))))
+
+
 
 
 
@@ -373,7 +376,8 @@ export const highlighted = (toks: token[], ast:ast):{cls:string}[][] =>{
   testCompile("x[y]", '(x[y])')
   testCompile("x=>y", '(x=>(y))')
   testCompile("x=>x.y", '(x=>((x["y"])))')
-  
+  testCompile("a=>b=>c", '(a=>((b=>(c))))')
+
   testCompile("1 > 2 ? 3 : 4", '((1>2)?3:\n4)')
   testCompile("1>2?3:4", '((1>2)?3:\n4)')
   
@@ -408,6 +412,9 @@ export const highlighted = (toks: token[], ast:ast):{cls:string}[][] =>{
   testCompile("[fn(2)]", '[(fn(2))]')
   testCompile("[...fn(2)]", '[...(fn(2))]')
 
+  testCompile("e=1;2", '(()=>{const e = 1;\nreturn 2})()')
+  testCompile("e={};44", '(()=>{const e = {};\nreturn 44})()')
+
   // testCompile("{x=2;x}", '{...(()=>{const x = 2;\nreturn {x:x}})()}')
   
   const testRun = (code:string, expected:any)=>
@@ -425,6 +432,10 @@ export const highlighted = (toks: token[], ast:ast):{cls:string}[][] =>{
 
   testRun("{x=2;x:x}", {x:2})
   testRun("{x:x=2;x}", {x:2})
+
+  testRun("e={};44", 44)
+
+
   /*
   assertCompileErr('"abc', `parse error, expected: "`)
   */

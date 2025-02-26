@@ -73,6 +73,7 @@ const buildPage = (r:Root, path:Path, indent:number):Pelement[] => {
 }
 
 const render = (par: Pelement, color?:{cls:string}[]):Rendered=>{
+
   const sel = par.selection? [par.selection.start, par.selection.end].sort((a,b)=>a-b) as [number, number]:undefined
   return {...par,
     el: htmlElement('p', '', 'line', {children:[
@@ -80,9 +81,11 @@ const render = (par: Pelement, color?:{cls:string}[]):Rendered=>{
         ...par.is_title? [htmlElement('span', par.content, 'title')]
         :insert(
           color != undefined
-          ? par.content.split('').map((c,i)=>htmlElement('span', c, 'char'+color[i].cls,))
+          ? par.content.split('').map((c,i)=>htmlElement('span', c, 'char'+color[i].cls+ (
+            sel && i >= sel[0] && i <sel[1] ? ".selected" : ""
+          ),))
           : par.content.split(' ').map(w=>(' '+w).split('').map(c=>({c,w}))).flat().slice(1)
-            .map(({c,w},i)=>htmlElement('span', c, ((par.colormap? (par.colormap[i]?.cls ?? '') :islink(w)?'link':'char') ) +
+            .map(({c,w},i)=>htmlElement('span', c, (par.colormap? (par.colormap[i]?.cls ?? '') :islink(w)?'link':'char')  +
               (sel && i>=sel[0] && i<sel[1] ? ".selected" : "")
           )),
           par.selection?.end, cursor()
@@ -143,12 +146,11 @@ const setLine = (line:number|[number, number], ...lines: Pelement[]):Update=>s=>
 
 const runscript =(s:State, start:number)=> {
 
-  // log("runscript", start)
-
 
 
   const pg = seekPage(start, s)
-  const code = getPageText(start, s)
+  const code = pg.slice(1).map(p=>p.content).join('\n')
+
   const codelines = code.split('\n')
   const [colormap, ast] = codelint(code)
 
@@ -163,7 +165,9 @@ const runscript =(s:State, start:number)=> {
     const s1 = 
     setStateVar('p',[
       ...s.p.slice(0,fcl+1),
-      ...colormap.map((l,i)=>render({...pg[i+1], content:codelines[i], is_title:undefined, }, l)),
+      ...colormap.map((l,i)=>render({...pg[i+1], selection: pg[i+1].selection, content:codelines[i], is_title:undefined, }, 
+      l
+    )),
       ...s.p.slice(lcl)
     ])(s);
 
