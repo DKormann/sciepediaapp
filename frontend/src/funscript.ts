@@ -179,9 +179,8 @@ const build = (ast:ast):string =>{
 
   const errs = flat_errors(ast)
   if (errs.length > 0) throw new Error(errs.map(e=>e.value).join('\n'))
-  const sfill = (template:string, i=0):string =>
-    i == ast.children.length? template:
-    sfill(template.replace("{}", build(ast.children[i])), i+1)
+
+  const sfill = (template:string):string => template.replace(/{}/g, ()=>build(ast.children.shift() as ast))
   return ast.type == "number" || ast.type == "boolean" || ast.type == "null" || ast.type == "identifier" || ast.type == "string" ? ast.value:
   "({[".includes(ast.type[0]) ? `${ast.type[0]}${ast.children.map(
     ast.type == "{}" ? (e)=>
@@ -192,15 +191,19 @@ const build = (ast:ast):string =>{
   
   ).join(",")}${ast.type[1]}`:
 
+
   (ast.type == "app")? sfill("({}{})"):
   (ast.type == "index")? sfill("({}[{}])"):
   (ast.type == 'neg')? `-${build(ast.children[0])}`:
   (ast.type == '=>')? sfill("({}=>({}))"):
   ast.type == ":" ? sfill("{{}:{}}"):
-  ast.children.length == 2 ? sfill(`({}${ast.type}{})`, 0):
+  ast.children.length == 2 ? sfill(`({}${ast.type}{})`):
   ast.children.length == 1 ? `${ast.type}${build(ast.children[0])}`:
-  ast.type == "=;" ? sfill("(()=>{const {} = {};\nreturn {}})()") :
-  ast.type == "?:" ? sfill(`({}?{}:\n{})`, 0):
+  ast.type == "=;" ? sfill("(()=>{const {} = {};\nreturn {}})()"):
+  ast.type == "?:" ? sfill(`({}?{}:\n{})`):
+
+
+
   // "not implemented: "+ast.type
   ast.type == "typo" ? (()=>{throw new Error(`${ast.value}`)})():
   (()=>{throw new Error("not implemented: "+ast.type)})()
@@ -292,11 +295,7 @@ export const highlighted = (toks: token[], ast:ast):{cls:string}[][] =>{
 }
 
 
-
-log(rearange(log(parse(tokenize("e={};22")))))
-
-
-
+// log(build(log(rearange(log(parse(tokenize("e={};22")))))))
 
 
 

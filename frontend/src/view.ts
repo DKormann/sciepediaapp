@@ -367,7 +367,7 @@ export const createView = (putDisplay:(el:HTMLElement)=>void) => {
             if (p == undefined) return
             show(setSelection([[s.mousestart!.p, s.mousestart!.c],[p,c]])(s))
           },
-          keydown: (e:KeyboardEvent)=>{
+          keydown: async (e:KeyboardEvent)=>{
 
             if (['Meta', 'Alt', 'Control', 'Shift'].includes(e.key)) return
 
@@ -377,32 +377,41 @@ export const createView = (putDisplay:(el:HTMLElement)=>void) => {
             const sel = getSelection(s)
             if (sel[0] == undefined) return
 
+            const insertText = (text:string):Update=>cc(
+              updateLines(sel, (ps=>{
+                const b1 = ps[0]
+                const b2 = last(ps)
+                const end = b2.content.slice(Math.max(b2.selection!.start, b2.selection!.end))
+                const newlines = (b1.content.slice(0,Math.min(b1.selection!.start, b1.selection!.end)) + text).split('\n')
+                return newlines.map((content,i)=>(i==newlines.length-1?{...b1, content:content+end, selection:{start:content.length, end:content.length}}:{...b1, content:content, selection:undefined}))
+              })),
+              pushhist,
+            )
+
+            if (e.key.length==1 && (e.metaKey || e.ctrlKey)){
+              const actioncode = (e.metaKey ? 'Meta' : '') + (e.ctrlKey ? 'Ctrl' : '') + e.key
+
+              if (actioncode == 'Metao')
+                OpenFileDialog().then(console.log)
+
+              if (actioncode == 'Metac'){
+                const [st,en] = log(getSelection(s))
+                if (st == undefined) return s
+                navigator.clipboard.writeText(s.p.slice(st,en)
+                .map(p=> p.selection?p.content.slice(...log([p.selection.start, p.selection.end].sort())):'').join('\n'))
+              }
+              if (actioncode == 'Metav')
+                return show(insertText(await navigator.clipboard.readText())(s))
+
+              e.preventDefault()
+              if (e.key != 'Metav')  return
+            }
+            
             return cc<State>(
-
               s=>{
-
-                if (e.key.length==1 && (e.metaKey || e.ctrlKey)){
-                  const actioncode = (e.metaKey ? 'Meta' : '') + (e.ctrlKey ? 'Ctrl' : '') + e.key
-
-                  if (actioncode == 'Metao'){
-                    OpenFileDialog().then(console.log)
-                  }
-                  e.preventDefault()
-                  return
-                }
                 if (["Tab", "Enter", "Backspace"].includes(e.key) || e.key.length == 1){
                   if (e.metaKey) return 
-                  return cc<State>(
-                    updateLines(sel, (ps=>{
-                      const b1 = ps[0]
-                      const b2 = last(ps)
-                      const end = b2.content.slice(Math.max(b2.selection!.start, b2.selection!.end))
-                      const newlines = (b1.content.slice(0,Math.min(b1.selection!.start, b1.selection!.end)) +
-                      (e.key.length == 1? e.key : e.key == 'Tab'? '  ' : e.key == 'Enter'? '\n' : '')).split('\n')
-                      return newlines.map((content,i)=>(i==newlines.length-1?{...b1, content:content+end, selection:{start:content.length, end:content.length}}:{...b1, content:content, selection:undefined}))
-                    })),
-                    pushhist,
-                  )(s)
+                  return insertText(e.key.length == 1? e.key: e.key == 'Tab'? '  ' : e.key == 'Enter'? '\n' : '')(s)
                 }
               },
               s=>{
