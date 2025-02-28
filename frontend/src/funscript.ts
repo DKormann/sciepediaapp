@@ -260,8 +260,11 @@ export const execAst = (parsed:ast):any => {
 
   const compt = build(parsed)
   try{
-    const FN = Function('htmlElement', "return "+compt)
-    return FN(htmlElement)
+
+    const args = {htmlElement, stringify, log, assert, assertEq}
+
+    const FN = Function(...Object.keys(args), "return "+compt)
+    return FN(...Object.values(args))
   }catch(e){
     throw new Error("runtime error in:" + compt + "\n" + (e as Error).message)
   }
@@ -293,10 +296,6 @@ export const highlighted = (toks: token[], ast:ast):{cls:string}[][] =>{
   
   return lines.map(l=>l.map(c=>c.code.split('').map(ch=>({cls:c.cls}))).flat())
 }
-
-
-// log(build(log(rearange(log(parse(tokenize("e={};22")))))))
-
 
 
 {

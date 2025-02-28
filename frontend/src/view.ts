@@ -146,8 +146,6 @@ const setLine = (line:number|[number, number], ...lines: Pelement[]):Update=>s=>
 
 const runscript =(s:State, start:number)=> {
 
-
-
   const pg = seekPage(start, s)
   const code = pg.slice(1).map(p=>p.content).join('\n')
 
