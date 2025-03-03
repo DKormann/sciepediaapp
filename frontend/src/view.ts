@@ -220,6 +220,12 @@ const getSelection = (s:State):[number,number]|[undefined,undefined] =>{
   return [start, rng==-1?s.p.length: rng+start]
 }
 
+const getSelectionText = (s:State):string => {
+  const [st,en] = log("METAC",getSelection(s))
+  if (st == undefined) ""
+  return s.p.slice(st,en).map(p=> p.selection?p.content.slice(...[p.selection.start, p.selection.end].sort((a,b)=>a-b)):'').join('\n')
+}
+
 function findLine (p:Rendered[],y:number):number 
 {return p.findIndex(({el})=>el.clientHeight + el.offsetTop > y)}
 
@@ -390,14 +396,19 @@ export const createView = (putDisplay:(el:HTMLElement)=>void) => {
               if (actioncode == 'Metao')
                 OpenFileDialog().then(console.log)
 
-              if (actioncode == 'Metac'){
-                const [st,en] = log(getSelection(s))
-                if (st == undefined) return
-                navigator.clipboard.writeText(s.p.slice(st,en)
-                .map(p=> p.selection?p.content.slice(...log([p.selection.start, p.selection.end].sort())):'').join('\n'))
+              if (actioncode == 'Metac') navigator.clipboard.writeText(getSelectionText(s))
+              if (actioncode == 'Metav') return show(insertText(await navigator.clipboard.readText())(s))
+              if (actioncode == 'Metax'){
+                navigator.clipboard.writeText(getSelectionText(s))
+                return show(insertText('')(s))
               }
-              if (actioncode == 'Metav')
-                return show(insertText(await navigator.clipboard.readText())(s))
+              if (actioncode == "Meta/"){
+                return show(updateLines(sel, (ps)=>
+                  ps.filter(p=>p.content.startsWith('//')).length > 0
+                  ? ps.map(p=>(p.content.startsWith('//')?{...p, content: p.content.slice(2)}:p))
+                  : ps.map(p=>({...p, content: p.content.startsWith('//')?p.content.slice(2):'//'+p.content, selection:p.selection?{start:2+p.selection.start, end:2+p.selection.end}:undefined}))
+                )(s))
+              }
             }
             
             return cc<State>(
@@ -469,3 +480,6 @@ export const createView = (putDisplay:(el:HTMLElement)=>void) => {
       hist: [],
   })
 }
+
+
+

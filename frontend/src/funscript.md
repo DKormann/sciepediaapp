@@ -82,3 +82,6 @@ fast_fib = n =>
   _fib(0, 1, n);
 
 console.log(fast_fib(100))
+
+
+```
