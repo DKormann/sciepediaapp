@@ -409,13 +409,19 @@ export const createView = (putDisplay:(el:HTMLElement)=>void) => {
                   : ps.map(p=>({...p, content: p.content.startsWith('//')?p.content.slice(2):'//'+p.content, selection:p.selection?{start:2+p.selection.start, end:2+p.selection.end}:undefined}))
                 )(s))
               }
+
             }
-            
+
             return cc<State>(
               s=>{
-                if (["Tab", "Enter", "Backspace"].includes(e.key) || e.key.length == 1){
-                  if (e.metaKey) return 
+                if (e.key == 'Tab'){
+                  if (e.shiftKey)
+                    return updateLines(sel, ps=>ps.map(p=>({...p, content: p.content.startsWith('  ')?p.content.slice(2):p.content})))(s)
+                  return updateLines(sel, ps=>ps.map(p=>({...p, content: '  ' + p.content, selection: p.selection?{start:p.selection.start+2, end:p.selection.end+2} : undefined})))(s)
+                }
 
+                if (["Enter", "Backspace"].includes(e.key) || e.key.length == 1){
+                  if (e.metaKey) return
                   return insertText(e.key.length == 1? e.key: e.key == 'Tab'? '  ' : e.key == 'Enter'? 
                     '\n'+ s.p[sel[1]-1].content.match(/^\s*/)?.[0] ?? '' : '')(s)
                 }
@@ -443,7 +449,6 @@ export const createView = (putDisplay:(el:HTMLElement)=>void) => {
                   if (s.p[nny].is_title) return
                   return setCursor(nny,nnx)(s)
                 }
-
 
                 if (e.key == 'Backspace'){
                   const newx = Math.max(0, x- (e.altKey ? 5 : e.metaKey ? 100 : 1))

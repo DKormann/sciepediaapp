@@ -39,6 +39,8 @@ export const tokenize = (code:string, i:number=0, tid = 0):token[] =>{
 
 export type ast = nullary | unary | binary | ternary | nary
 
+type expression = code & {reads: expression[]}
+
 type nullary = code & {type:"number" | "string" | "boolean" | "null" | "identifier" | "typo", children:[], value:string}
 type unary = code & {type:"!" | "neg" | "..."} & {children: [ast]}
 type binary = code & {type:"+" | "-" | "*" | "/" | "%" | "<" | ">" | "<=" | ">=" | "==" | "!=" | "&&" | "||" | "app" | "=>" | "index" | "[]" | ":"} & {children: [ast, ast]}
@@ -48,11 +50,8 @@ type nary = code & {type:"{}" | "[]" | "()"} & {children: ast[]}
 const ternaryops = ["?:", "=;"]
 const symbolpairs = [["(", ")"], ["{", "}"], ["[", "]"], ["?", ":"], ["=", ";"]]
 
-const binaryops = ["+", "-", "*", "/", "%", "<", ">", "<=", ">=", "==", "!=", "&&", "||", "app", "=>", "index",
-  //  ":"
-  ]
+const binaryops = ["+", "-", "*", "/", "%", "<", ">", "<=", ">=", "==", "!=", "&&", "||", "app", "=>", "index",]
 const unaryops = ["!", "neg", "..."]
-
 
 const newast = <T extends ast >(type:T["type"], start:number, end:number, children:ast[] = []):T =>{
   if (binaryops.includes(type)) assertEq(children.length, 2, "newast error "+type)
@@ -95,7 +94,6 @@ const parse = (tokens:token[]): ast => {
     if ("])};:".includes(tok.value)) return {type: "typo", value: `cant parse ${type}. expected ${closer} because of ${opener.value}`, start: tok.start, end: tok.end, children:[]}
 
     const child = type == "{}" ? parseKV (idx) : parseexpr(idx)
-    // const child = parseexpr(idx)
     if (child.type == "typo") return child
     const rest = parsegroup(opener, nexttok(child))
 
@@ -175,7 +173,6 @@ const parse = (tokens:token[]): ast => {
 }
 
 
-
 const build = (ast:ast):string =>{
 
   const errs = flat_errors(ast)
@@ -202,10 +199,6 @@ const build = (ast:ast):string =>{
   ast.children.length == 1 ? `${ast.type}${build(ast.children[0])}`:
   ast.type == "=;" ? sfill("(()=>{const {} = {};\nreturn {}})()"):
   ast.type == "?:" ? sfill(`({}?{}:\n{})`):
-
-
-
-  // "not implemented: "+ast.type
   ast.type == "typo" ? (()=>{throw new Error(`${ast.value}`)})():
   (()=>{throw new Error("not implemented: "+ast.type)})()
 }
@@ -434,9 +427,5 @@ export const highlighted = (toks: token[], ast:ast):{cls:string}[][] =>{
 
   testRun("e={};44", 44)
 
-
-  /*
-  assertCompileErr('"abc', `parse error, expected: "`)
-  */
 }
 
