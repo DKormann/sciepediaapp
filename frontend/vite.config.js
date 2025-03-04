@@ -6,7 +6,7 @@ export default defineConfig(({ command, mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
 
   // Determine base path
-  const base = command === 'build' && env.BUILD_TARGET === 'web'
+  const base = command === 'build' && env.BUILD_TARGET === 'gh-pages'
     ? '/sciepediaapp/'
     : '/';
 
