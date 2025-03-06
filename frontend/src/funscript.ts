@@ -13,7 +13,7 @@ export type token = code & {value:string, type:"number" | "string" | "boolean" |
 
 const symbols = ["(", ")", "{", "}", "[", "]", "=>", ",", ":", "?", "=>", "!", "&&", "||", "+", "-", "*", "/", "%", "<", ">", "<=", ">=", "==", "!=", "=", ";", "...", ".", "//"]
 
-const seek = (code:string, start:number, pred: (c:string, i:number)=>boolean):number =>{
+export const seek = (code:string, start:number, pred: (c:string, i:number)=>boolean):number =>{
   const off = code.slice(start).split('').findIndex(pred)
   return off == -1 ? code.length : start + off
 }
@@ -60,7 +60,7 @@ const newast = <T extends ast >(type:T["type"], start:number, end:number, childr
   return res
 }
 
-const parse = (tokens:token[]): ast => {
+export const parse = (tokens:token[]): ast => {
 
   const nonw = (idx:number): number =>
     tokens[idx] == undefined? -1 :tokens[idx].type == "whitespace" || tokens[idx].type == "comment" ? nonw(idx+1): idx
@@ -173,7 +173,7 @@ const parse = (tokens:token[]): ast => {
 }
 
 
-const build = (ast:ast):string =>{
+export const build = (ast:ast):string =>{
 
   const errs = flat_errors(ast)
   if (errs.length > 0) throw new Error(errs.map(e=>e.value).join('\n'))
@@ -197,13 +197,13 @@ const build = (ast:ast):string =>{
   ast.type == ":" ? sfill("{{}:{}}"):
   ast.children.length == 2 ? sfill(`({}${ast.type}{})`):
   ast.children.length == 1 ? `${ast.type}${build(ast.children[0])}`:
-  ast.type == "=;" ? sfill("(()=>{const {} = {};\nreturn {}})()"):
+  ast.type == "=;" ? sfill("(()=>{{} = {};\nreturn {}})()"):
   ast.type == "?:" ? sfill(`({}?{}:\n{})`):
   ast.type == "typo" ? (()=>{throw new Error(`${ast.value}`)})():
   (()=>{throw new Error("not implemented: "+ast.type)})()
 }
 
-const operator_weight = (op: ast['type']): number =>
+export const operator_weight = (op: ast['type']): number =>
   op === "app" || op === "index" ? 15 :
   unaryops.includes(op) ? 13 :     // Unary operators
   op === "*" || op === "/" || op === "%" ? 12 :
@@ -219,7 +219,7 @@ const operator_weight = (op: ast['type']): number =>
   -1;
 
 
-const rearange = (nod:ast):ast => {
+export const rearange = (nod:ast):ast => {
   assert(nod != undefined, "rearange error")
 
   //@ts-expect-error
@@ -255,7 +255,7 @@ export const execAst = (parsed:ast):any => {
   const compt = build(parsed)
   try{
 
-    const args = {htmlElement, stringify, log, assert, assertEq}
+    const args = {htmlElement, stringify, log, assert, assertEq, print:console.log}
 
     const FN = Function(...Object.keys(args), "return "+compt)
     return FN(...Object.values(args))
@@ -270,7 +270,7 @@ type colored_line = {code:string, cls:string}[]
 
 const range = (start:number, end:number):number[] => Array.from({length:end-start}, (_,i)=>i+start)
 
-const flat_errors = (ast:ast):token[] =>
+export const flat_errors = (ast:ast):token[] =>
   ast.type == "typo" ? [ast]:
   ast.children.map(flat_errors).flat()
 
@@ -289,143 +289,5 @@ export const highlighted = (toks: token[], ast:ast):{cls:string}[][] =>{
   const lines =  chs.slice(1).reduce((p, c)=>[...p.slice(0,-1), [...last(p), ...c[0]], ...c.slice(1)], chs[0]??[[]])
   
   return lines.map(l=>l.map(c=>c.code.split('').map(ch=>({cls:c.cls}))).flat())
-}
-
-
-{
-  assertEq(tokenize("1"), [{type:"number", value:"1", start:0, end:1}])
-  assertEq(tokenize("1 +  1"), [{type:"number", value:"1", start:0, end:1}, {type:"whitespace", value:" ", start:1, end:2}, {type:"symbol", value:"+", start:2, end:3}, {type:"whitespace", value:"  ", start:3, end:5}, {type:"number", value:"1", start:5, end:6}])
-  assertEq(tokenize('{"gello" + ]22', 0), [{type:"symbol", value:"{", start:0, end:1}, {type:"string", value:"\"gello\"", start:1, end:8}, {type:"whitespace", value:" ", start:8, end:9}, {type:"symbol", value:"+", start:9, end:10}, {type:"whitespace", value:" ", start:10, end:11}, {type:"symbol", value:"]", start:11, end:12}, {type:"number", value:"22", start:12, end:14}])
-  assertEq(tokenize('true'), [{type:"boolean", value:"true", start:0, end:4}])
-  assertEq(tokenize("a + // comment\nb"), [{type:"identifier", value:"a", start:0, end:1}, {type:"whitespace", value:" ", start:1, end:2}, {type:"symbol", value:"+", start:2, end:3}, {type:"whitespace", value:" ", start:3, end:4}, {type:"comment", value:"// comment", start:4, end:14}, {type:"whitespace", value:"\n", start:14, end:15}, {type:"identifier", value:"b", start:15, end:16}])
-
-  const testbuild = (...codes:string[]) =>{
-    try{
-      const built = build(parse(tokenize(codes[0])))
-      assertEq(built, codes[1] ?? codes[0], " compiling "+ codes[0])
-    }catch(e){
-      console.error(e, " in compiling "+ codes[0])
-    }
-  }  
-  assertEq(parse(tokenize("1")), {type:"number", value:"1", start:0, end:1, children:[]})
-  assertEq(parse(tokenize("2312")), {type:"number", value:"2312", start:0, end:4, children: []})
-  assertEq(parse(tokenize("true")), {type:"boolean", value:"true", start:0, end:4, children: []})
-
-  assertEq(build(parse(tokenize("1"))), "1")
-  assertEq(build(parse(tokenize("[1]"))), "[1]")
-  
-  testbuild("1")
-  testbuild("[1]")
-  testbuild("true")
-  testbuild("false")
-  testbuild("null")
-  testbuild("123")
-
-  testbuild("{}")
-  testbuild("{a,}", '{"a":a}')
-  testbuild("-x")
-
-  testbuild("x + y", "(x+y)")
-  testbuild("[a+1]", "[(a+1)]")
-  testbuild("[a+1,b-1]", "[(a+1),(b-1)]")
-  testbuild("{a:1}", '{"a":1}')
-  testbuild("...a", "...a")
-
-  testbuild("{a:1, b:2,...c}", '{"a":1,"b":2,...c}')
-
-
-  const testCompile = (code:string, expected: string)=>{
-    try{
-      assertEq(compile(code), expected, " in compiling " + code)
-    }catch(e){
-      console.error(e, " in compiling " + code)
-    }
-  }
-
-  testCompile("1", "1")
-  testCompile("a + 3", "(a+3)")
-  testCompile("!a+b", "(!a+b)")
-  testCompile("a + b + c", "((a+b)+c)")
-  
-  testCompile("a + b * c", "(a+(b*c))")
-  testCompile("[a + b * c]", "[(a+(b*c))]")
-  testCompile("a + b * c . d", '(a+(b*(c["d"])))')
-  testCompile("a * b + c", "((a*b)+c)")
-
-  testCompile("!a * b +c", "((!a*b)+c)")
-  testCompile("a ? b : c", "(a?b:\nc)")
-  
-  testCompile("a>b?c:d", "((a>b)?c:\nd)")
-  testCompile("a=b;c", "(()=>{const a = b;\nreturn c})()")
-  
-  testCompile("14 ", "14")
-  testCompile("1 + 2", "(1+2)")
-  testCompile("1 * 2 + 3", "((1*2)+3)")
-  testCompile("{a:1, b:2}", '{"a":1,"b":2}')
-  testCompile("{a, ...b}", '{"a":a,...b}')
-  
-  testCompile("x.y", '(x["y"])')
-  testCompile("x[y]", '(x[y])')
-  testCompile("x=>y", '(x=>(y))')
-  testCompile("x=>x.y", '(x=>((x["y"])))')
-  testCompile("a=>b=>c", '(a=>((b=>(c))))')
-
-  testCompile("1 > 2 ? 3 : 4", '((1>2)?3:\n4)')
-  testCompile("1>2?3:4", '((1>2)?3:\n4)')
-  
-  testCompile('fn(22)', '(fn(22))')
-  testCompile('fn(22) + 3', '((fn(22))+3)')
-  testCompile('"a"+"b"', '("a"+"b")')
-
-  testCompile('a.b', '(a["b"])')
-  
-  testCompile('n=>n<2?n:2', '(n=>(((n<2)?n:\n2)))')
-  testCompile('fn(x-2)', '(fn((x-2)))')
-  testCompile('a+b(c)', '(a+(b(c)))')
-  
-  testCompile('[fn(x),2]', '[(fn(x)),2]')
-  testCompile('[x[3],e.r,2,]', '[(x[3]),(e["r"]),2]')
-  testCompile("[-x, !true]", '[-x,!true]')
-  
-  testCompile("a.b", '(a["b"])')
-  testCompile("a.b.c", '((a["b"])["c"])') // fails giving a[b["c"]]
-  testCompile("a.b(22)", '((a["b"])(22))') // fails giving a[b(22)]
-  testCompile("a(b).c", '((a(b))["c"])')
-
-  testCompile("a.b(f(22))", '((a["b"])((f(22))))')  
-  testCompile('"hello " + "world"', '("hello "+"world")')
-
-  testCompile("f(a, b)", '(f(a,b))')
-  
-  testCompile("{x:x=2;x}", '{"x":(()=>{const x = 2;\nreturn x})()}')
-  testCompile("{x=2;x:x}", '{...(()=>{const x = 2;\nreturn {x:x}})()}')
-
-  testCompile("[...fn]", '[...fn]')
-  testCompile("[fn(2)]", '[(fn(2))]')
-  testCompile("[...fn(2)]", '[...(fn(2))]')
-
-  testCompile("e=1;2", '(()=>{const e = 1;\nreturn 2})()')
-  testCompile("e={};44", '(()=>{const e = {};\nreturn 44})()')
-
-  // testCompile("{x=2;x}", '{...(()=>{const x = 2;\nreturn {x:x}})()}')
-  
-  const testRun = (code:string, expected:any)=>
-    assertEq(runfun(code), expected, " in running "+ code)
-
-  testRun("\n1", 1)
-  testRun("1 + 2", 3)
-
-  testRun('"hello" + "world"', "helloworld")
-
-  testRun("x=1;x", 1)
-  testRun('x="hello";x+x', "hellohello")
-
-  testRun("[a,b] = [1,2]; a", 1)
-
-  testRun("{x=2;x:x}", {x:2})
-  testRun("{x:x=2;x}", {x:2})
-
-  testRun("e={};44", 44)
-
 }
 

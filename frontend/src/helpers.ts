@@ -44,7 +44,7 @@ export const setAttr=<T>(key:keyof T, value:any)=>(item:T):T=>({...item, [key]:v
 export const last = <T>(arr:LastT<any,T> | T[]):T => arr[arr.length-1]
 
 
-function hash(input: string, seed: bigint = BigInt(0x32a48392f08e5)): bigint {
+export function hash(input: string, seed: bigint = BigInt(0x32a48392f08e5)): bigint {
   let hash = seed;
   const prime = BigInt(0x100000001b3); // FNV prime
   for (let i = 0; i < input.length; i++) {

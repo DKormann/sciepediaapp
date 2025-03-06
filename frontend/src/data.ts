@@ -19,10 +19,10 @@ type ND = Root|Child
 type Step = (root:Root)=>Root|void
 const chain = (root:Root, ...steps:Step[]):Root => steps.reduce((state, step) => step(state) || state, root) 
 
-const getChild = (parent:Root|Child, title:string):Child =>
+export const getChild = (parent:Root|Child, title:string):Child =>
   parent.children.find(c=>c.path[c.path.length-1] === title) || {Content:'', path: [...parent.path, title], children: []}
 
-const getNode = (root:Root, path:Path):Child|Root =>{
+export const getNode = (root:Root, path:Path):Child|Root =>{
   if (path.length === 0){
     return root
   }
@@ -48,14 +48,14 @@ const displayNode = (node:Root|Child):string => {
 
 const last = <T>(arr:T[]):T => arr[arr.length-1]
 
-const setChild = <T extends ND>(parent:T, title:string, child:Child):T => {
+export const setChild = <T extends ND>(parent:T, title:string, child:Child):T => {
   return {
     ...parent,
     children: parent.children.filter(c=>last(c.path) !== title).concat([child])
   }
 }
 
-const setNode = <T extends ND>(root:T, node:Child):T=>{
+export const setNode = <T extends ND>(root:T, node:Child):T=>{
   if (root.path.length === node.path.length) return node as T
   const title = node.path[root.path.length]
   return setChild(root, title, setNode(getChild(root, title), node))
