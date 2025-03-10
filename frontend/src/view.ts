@@ -476,6 +476,8 @@ export const createView = (putDisplay:(el:HTMLElement)=>void) => {
     child('script.fs.>>>',"RESULT")
 )
 
+  
+
   cc(
     show
   )({
@@ -485,6 +487,9 @@ export const createView = (putDisplay:(el:HTMLElement)=>void) => {
       hist: [],
   })
 }
+
+
+
 
 
 

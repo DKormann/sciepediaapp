@@ -2,6 +2,7 @@
 import "./style.css"
 import { createView } from "./view"
 
+import "./openrouter"
 
 
 const viewer = document.createElement('div')
