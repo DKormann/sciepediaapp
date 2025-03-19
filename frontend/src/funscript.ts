@@ -39,8 +39,6 @@ export const tokenize = (code:string, i:number=0, tid = 0):token[] =>{
 
 export type ast = nullary | unary | binary | ternary | nary
 
-type expression = code & {reads: expression[]}
-
 type nullary = code & {type:"number" | "string" | "boolean" | "null" | "identifier" | "typo", children:[], value:string}
 type unary = code & {type:"!" | "neg" | "..."} & {children: [ast]}
 type binary = code & {type:"+" | "-" | "*" | "/" | "%" | "<" | ">" | "<=" | ">=" | "==" | "!=" | "&&" | "||" | "app" | "=>" | "index" | "[]" | ":"} & {children: [ast, ast]}
