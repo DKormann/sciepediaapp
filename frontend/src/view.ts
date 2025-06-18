@@ -6,13 +6,14 @@ import "./funscript"
 
 import { assertEq, comp, log, last, LastT, stringify, setAttr, uuid, assert} from './helpers'
 import { Store , store, teststore} from './_store'
-import { 
-  getAst,
+import {
+
   execAst,
-  tokenize,
-  highlighted,
-  ast,
+  codelint,
   } from './funscript'
+
+import * as Music from "./musicscript"
+
 import { highlighted_js, run_js } from './javascriptexec'
 import { Greet, GetFile, OpenFileDialog } from './wailsjs/go/main/App'
 
@@ -49,25 +50,22 @@ type Rendered = Pelement & {
 
 const islink = (s:string) => s.startsWith('#') && s.length > 1
 
-function codelint(code:string){
-  const toks = tokenize(code)
-  const ast = getAst(toks)
-  return [highlighted(toks, ast), ast] as [{cls:string}[][], ast]
-}
-
 
 const buildPage = (r:Root, path:Path, indent:number):Pelement[] => {
   const node = getData(r, path)
   const tit = node.path.join('.')
 
-  const colormap = (last(path) == 'fs') ? codelint(node.Content)[0] as {cls:string}[][] : undefined
+  const colormap = (last(path) == 'fs' || last(path) == 'mus') ? codelint(node.Content)[0] as {cls:string}[][]
+  :undefined
 
   return[
     {content:tit,path,indent,is_title:true, children:[]},
     ...node.Content.split('\n').map((c,i)=>({content:c, indent, path, children:[], cursor:-1, colormap:colormap?colormap[i]:undefined})),
     ...(last(path) == 'fs' ? 
       buildPage(r, path.concat(">>>"), indent+1)
-      :[]),
+      : last(path) == 'mus' ?
+      buildPage(r, path.concat("player"), indent+1)
+      : []),
   ]
 
 }
@@ -153,7 +151,6 @@ const runscript =(s:State, start:number)=> {
   const [colormap, ast] = codelint(code)
 
   try{
-    
     const fcl = firstPageLine(start, s)
     const lol = lastPageLine(start, s)
     const lcl = firstPageLine(lol, s)
@@ -303,7 +300,6 @@ uuid(last(s.hist)).id
 try{
   Greet("alice").then(console.log)
   GetFile("script.fs").then(console.log)
-
 }catch{}
 
 export const createView = (putDisplay:(el:HTMLElement)=>void) => {
@@ -319,8 +315,12 @@ export const createView = (putDisplay:(el:HTMLElement)=>void) => {
 
     s=>{
       const [sel,_] = getSelection(s)
-      if (sel == undefined || last(s.p[sel].path)!='fs') return
-      return runscript(s, sel)
+
+      if (sel == undefined) return
+      if (last(s.p[sel].path) == "fs") return runscript(s,sel)
+      if (last(s.p[sel].path) == "mus") return runscript(s,sel)
+      return 
+
     },
 
     s=>{
@@ -423,7 +423,7 @@ export const createView = (putDisplay:(el:HTMLElement)=>void) => {
                 if (["Enter", "Backspace"].includes(e.key) || e.key.length == 1){
                   if (e.metaKey) return
                   return insertText(e.key.length == 1? e.key: e.key == 'Tab'? '  ' : e.key == 'Enter'? 
-                    '\n'+ s.p[sel[1]-1].content.match(/^\s*/)?.[0] ?? '' : '')(s)
+                    '\n'+ s.p[sel[1]-1].content.match(/^\s*/)?.[0] : '')(s)
                 }
               },
               s=>{
@@ -473,8 +473,16 @@ export const createView = (putDisplay:(el:HTMLElement)=>void) => {
   root(
     child('hello', 'hello world'),
     child('script.fs', "\nfib = (n) =>\n  n<2 ? n :\n  fib(n-1) + fib(n-2);\n\nfastfib = (n) =>\n  _fib = n =>\n    n == 0 ? [1,0]:\n    [a,b] = _fib(n-1);\n    [b,a+b];\n  _fib(n)[0];\n\n\n[fib(7), fastfib(70)]\n"),
-    child('script.fs.>>>',"RESULT")
+    child('script.fs.>>>',"RESULT"),
+
+
+    child('script.mus', "\nfib = (n) =>\n  n<2 ? n :\n  fib(n-1) + fib(n-2);\n\nfastfib = (n) =>\n  _fib = n =>\n    n == 0 ? [1,0]:\n    [a,b] = _fib(n-1);\n    [b,a+b];\n  _fib(n)[0];\n\n\n[fib(7), fastfib(70)]\n"),
+    child('script.mus.player',"RESULT")
+
+
 )
+
+
 
   
 

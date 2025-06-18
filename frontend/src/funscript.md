@@ -58,7 +58,10 @@ obj = {a: 1, mx:
 ### tradeoffs:
 - you dont need curly braces for anything except objects
 - semicolons specifically for variable assignment
-- code becomes dense but concise and fast to write
+- code becomes dense but concise
+- no implicit control flow
+- no mutable states
+- no monads (yet?)
 
 
 ### example:

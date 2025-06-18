@@ -2,7 +2,7 @@ import { htmlElement } from "./_html"
 import { assertEq, assertErr, last, log, stringify, Res, Ok, Err, ok, err, assert } from "./helpers"
 
 
-type code = {
+export type code = {
   type: string,
   start: number,
   end: number,
@@ -212,8 +212,6 @@ export const operator_weight = (op: ast['type']): number =>
   op === "?:" || op === "=;" ? 8 :
   op === "=>" ? 7 :
 
-  // op === "()" || op === "[]" || op === "{}" ? 6 :
-  
   -1;
 
 
@@ -287,5 +285,11 @@ export const highlighted = (toks: token[], ast:ast):{cls:string}[][] =>{
   const lines =  chs.slice(1).reduce((p, c)=>[...p.slice(0,-1), [...last(p), ...c[0]], ...c.slice(1)], chs[0]??[[]])
   
   return lines.map(l=>l.map(c=>c.code.split('').map(ch=>({cls:c.cls}))).flat())
+}
+
+export function codelint(code:string){
+  const toks = tokenize(code)
+  const ast = getAst(toks)
+  return [highlighted(toks, ast), ast] as [{cls:string}[][], ast]
 }
 
