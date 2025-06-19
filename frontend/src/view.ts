@@ -471,7 +471,7 @@ export const createView = (putDisplay:(el:HTMLElement)=>void) => {
   const r = 
   store.get('root') ??
   root(
-    child('hello', 'hello world'),
+    child('hello', 'hello world\n#script.fs'),
     child('script.fs', "\nfib = (n) =>\n  n<2 ? n :\n  fib(n-1) + fib(n-2);\n\nfastfib = (n) =>\n  _fib = n =>\n    n == 0 ? [1,0]:\n    [a,b] = _fib(n-1);\n    [b,a+b];\n  _fib(n)[0];\n\n\n[fib(7), fastfib(70)]\n"),
     child('script.fs.>>>',"RESULT")
 )
