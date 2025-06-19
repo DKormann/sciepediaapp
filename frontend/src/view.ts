@@ -423,7 +423,7 @@ export const createView = (putDisplay:(el:HTMLElement)=>void) => {
                 if (["Enter", "Backspace"].includes(e.key) || e.key.length == 1){
                   if (e.metaKey) return
                   return insertText(e.key.length == 1? e.key: e.key == 'Tab'? '  ' : e.key == 'Enter'? 
-                    '\n'+ s.p[sel[1]-1].content.match(/^\s*/)?.[0] ?? '' : '')(s)
+                    '\n'+ s.p[sel[1]-1].content.match(/^\s*/)?.[0] : '')(s)
                 }
               },
               s=>{
