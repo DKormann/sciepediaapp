@@ -16,6 +16,8 @@ import {
 import { highlighted_js, run_js } from './javascriptexec'
 import { Greet, GetFile, OpenFileDialog } from './wailsjs/go/main/App'
 
+console.info("welcome this site is probably open source: https://github.com/DKormann/sciepediaapp")
+
 
 type State = {
   r: Root,

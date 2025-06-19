@@ -1,44 +1,44 @@
-name: Deploy to GitHub Pages
+# name: Deploy to GitHub Pages
 
-on:
-  push:
-    branches:
-      - main  # Trigger on push to main
+# on:
+#   push:
+#     branches:
+#       - main  # Trigger on push to main
 
 
       
-jobs:
-  build-and-deploy:
-    runs-on: ubuntu-latest
+# jobs:
+#   build-and-deploy:
+#     runs-on: ubuntu-latest
 
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+#     steps:
+#       - name: Checkout repository
+#         uses: actions/checkout@v4
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 18  # Adjust if needed
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
+#       - name: Set up Node.js
+#         uses: actions/setup-node@v4
+#         with:
+#           node-version: 18  # Adjust if needed
+#           cache: npm
+#           cache-dependency-path: frontend/package-lock.json
 
-      - name: Install dependencies
-        run: |
-          cd frontend
-          npm install
+#       - name: Install dependencies
+#         run: |
+#           cd frontend
+#           npm install
 
-      - name: Build project
-        run: |
-          cd frontend
-          npm run build:gh-pages
+#       - name: Build project
+#         run: |
+#           cd frontend
+#           npm run build:gh-pages
 
-      - name: Deploy to github_pages branch
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git checkout --orphan github_pages
-          git rm -rf . 
-          cp -r dist/* .
-          git add .
-          git commit -m "Deploy frontend build"
-          git push -f origin github_pages
+#       - name: Deploy to github_pages branch
+#         run: |
+#           git config --global user.name "github-actions[bot]"
+#           git config --global user.email "github-actions[bot]@users.noreply.github.com"
+#           git checkout --orphan github_pages
+#           git rm -rf . 
+#           cp -r dist/* .
+#           git add .
+#           git commit -m "Deploy frontend build"
+#           git push -f origin github_pages
