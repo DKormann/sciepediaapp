@@ -4,8 +4,9 @@
   "version": "0.0.0",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build --force",
     "build:gh-pages": "BUILD_TARGET=gh-pages vite build --force",
+    "build": "BUILD_TARGET=gh-pages vite build --force",
+    "build:local": "tsc && vite build --force",
     "preview": "vite preview",
     "test": "jest",
     "check": "tsc --noEmit"

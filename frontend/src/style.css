@@ -60,6 +60,7 @@ body{
 .link{
   color: var(--active);
   cursor: pointer;
+  text-decoration: underline;
 }
 
 *:focus{
