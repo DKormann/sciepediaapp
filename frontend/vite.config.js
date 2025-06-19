@@ -13,7 +13,7 @@ export default defineConfig(({ command, mode }) => {
   return {
     base,
     build: {
-      outDir: '../dist', // Wails looks for assets here by default
+      outDir: '../docs', // Wails looks for assets here by default
       emptyOutDir: true,
       rollupOptions: {
         input: '/index.html',
